@@ -1,0 +1,25 @@
+# ── API ───────────────────────────────────────────────────────────────────────
+fastapi>=0.136.0
+uvicorn[standard]>=0.34.0
+websockets>=13.0
+ 
+# ── Database ──────────────────────────────────────────────────────────────────
+sqlalchemy[asyncio]>=2.0
+asyncpg                    # async PostgreSQL/TimescaleDB driver
+alembic                    # schema migrations
+ 
+# ── Exchange connectivity ─────────────────────────────────────────────────────
+ccxt[pro]                  # WebSocket streams: Binance, Kraken, Coinbase etc.
+ 
+# ── Kafka transport ───────────────────────────────────────────────────────────
+aiokafka                   # async Kafka producer/consumer
+ 
+# ── Validation & utilities ────────────────────────────────────────────────────
+pydantic>=2.0
+python-dotenv
+orjson                     # faster JSON (ccxt recommended for WS throughput)
+
+# ── PyFlink — install SEPARATELY, see INSTALL.md ─────────────────────────────
+# Do NOT include apache-flink here — it requires Java 11+ to be installed first
+# and must be pinned to match your Python version exactly.
+# See INSTALL.md for the correct install command.
