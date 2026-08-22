@@ -1,0 +1,51 @@
+# Patch 1 — use NodePort so minikube service command works
+apiVersion: v1
+kind: Service
+metadata:
+  name: fastapi-service
+  namespace: tradingmaster
+spec:
+  type: NodePort
+
+---
+# Patch 2 — never pull from registry, use locally built image
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fastapi
+  namespace: tradingmaster
+spec:
+  replicas: 1           # single replica locally
+  template:
+    spec:
+      containers:
+        - name: fastapi
+          imagePullPolicy: Never
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "300m"
+              memory: "256Mi"
+
+---
+# Patch 3 — flink also uses local image
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-candle-builder
+  namespace: tradingmaster
+spec:
+  template:
+    spec:
+      containers:
+        - name: flink-candle-builder
+          imagePullPolicy: Never
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

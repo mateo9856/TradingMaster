@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-candle-builder
+  namespace: tradingmaster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: flink-candle-builder
+  template:
+    metadata:
+      labels:
+        app: flink-candle-builder
+    spec:
+      containers:
+        - name: flink-candle-builder
+          image: tradingmaster-flink:latest
+          envFrom:
+            - secretRef:
+                name: tradingmaster-secrets
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: "kafka-service:9092"
+            - name: TIMESCALE_JDBC_URL
+              value: "jdbc:postgresql://postgres-service:5432/tradingmaster"
+            - name: TIMESCALE_USER
+              value: "user"
+            - name: TIMESCALE_PASS
+              value: "mysecretpassword"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"

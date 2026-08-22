@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: tradingmaster
+
+bases:
+  - ../../base
+
+# Add local secrets on top of base
+resources:
+  - secrets.yaml
+
+# Apply local-specific patches
+patches:
+  - path: fastapi-patch.yaml
+
+# Tag all images with local suffix so they're clearly local builds
+images:
+  - name: tradingmaster-api
+    newTag: local
+  - name: tradingmaster-flink
+    newTag: local
