@@ -15,6 +15,8 @@ from datetime import datetime
 
 import ccxt.pro as ccxtpro
 from aiokafka import AIOKafkaProducer
+from aiokafka.admin import AIOKafkaAdminClient, NewTopic
+from aiokafka.errors import TopicAlreadyExistsError
 
 from app.config import (
     KAFKA_BOOTSTRAP_SERVERS,
@@ -32,11 +34,52 @@ EXCHANGE_SYMBOLS: dict = {
     "coinbase": ["BTC/USDT", "ETH/USDT"],           # no BNB on Coinbase
 }
 
-
 def _topic_name(exchange: str, symbol: str) -> str:
     """BTC/USDT → BTCUSDT, topic → binance.BTCUSDT.candles"""
     normalized = symbol.replace("/", "")
     return f"{exchange}.{normalized}.candles"
+
+
+def _build_topic_list() -> list[str]:
+    """Build all required topic names from configured exchanges and symbols."""
+    topics = []
+    for exchange_id in WATCH_EXCHANGES:
+        available = EXCHANGE_SYMBOLS.get(exchange_id, WATCH_SYMBOLS)
+        active = [s for s in WATCH_SYMBOLS if s in available]
+        for symbol in active:
+            topics.append(_topic_name(exchange_id, symbol))
+    return topics
+
+
+async def _create_topics() -> None:
+    """
+    Creates all required Kafka topics on startup if they don't exist.
+    This replaces the need to run create_kafka_topics.sh manually.
+    """
+    topics = _build_topic_list()
+    admin = AIOKafkaAdminClient(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
+
+    await admin.start()
+    try:
+        new_topics = [
+            NewTopic(
+                name=topic,
+                num_partitions=1,
+                replication_factor=1,
+            )
+            for topic in topics
+        ]
+        await admin.create_topics(new_topics)
+        logger.info(f"Created Kafka topics: {topics}")
+
+    except TopicAlreadyExistsError:
+        logger.info("Kafka topics already exist — skipping creation")
+
+    except Exception as e:
+        logger.warning(f"Topic creation warning: {e}")
+
+    finally:
+        await admin.close()
 
 
 async def _send_candle(
@@ -98,7 +141,7 @@ async def _stream_per_symbol(
     interval: str = "1m",
 ) -> None:
     """
-    Stream using watchOHLCV per symbol — fallback for Kraken, Coinbase etc.
+    Stream using watchOHLCV per symbol — fallback for Kraken etc.
     Returns: [[ts, o, h, l, c, v], ...]
     """
     while True:
@@ -121,7 +164,6 @@ async def _stream_exchange(
     credentials = EXCHANGE_CREDENTIALS.get(exchange_id, {})
     exchange: ccxtpro.Exchange = getattr(ccxtpro, exchange_id)(credentials)
 
-    # Use only symbols available on this exchange
     available = EXCHANGE_SYMBOLS.get(exchange_id, symbols)
     active_symbols = [s for s in symbols if s in available]
 
@@ -141,7 +183,6 @@ async def _stream_exchange(
                 await _stream_with_multi(exchange, exchange_id, active_symbols, producer, interval)
             else:
                 logger.info(f"[{exchange_id}] Using watchOHLCV per symbol")
-                # Run one coroutine per symbol concurrently
                 await asyncio.gather(*[
                     _stream_per_symbol(exchange, exchange_id, symbol, producer, interval)
                     for symbol in active_symbols
@@ -160,9 +201,11 @@ async def _stream_exchange(
 
 async def run_producer() -> None:
     """
-    Entry point — starts one streaming task per exchange,
-    all sharing the same Kafka producer connection.
+    Entry point — creates topics then starts one streaming task per exchange.
     """
+    # Create topics automatically on every startup
+    await _create_topics()
+
     producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
     await producer.start()
     logger.info("Kafka producer started")

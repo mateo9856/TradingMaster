@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+import app.models  # noqa: F401 — ensures all ORM models register with Base
 from app.models.database import engine, Base
 from app.kafka.producer import run_producer
 from app.routers import market
