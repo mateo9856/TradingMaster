@@ -1,11 +1,18 @@
 """
 Exchange → Kafka producer
 
-Uses CCXT Pro to stream live OHLCV candles from multiple exchanges
-simultaneously, then publishes each candle to a Kafka topic.
+Uses CCXT Pro to stream live OHLCV candles from multiple exchanges.
 
-Topic naming convention:  {exchange}.{ticker_normalized}.candles
-Example:                  binance.BTCUSDT.candles
+Exchange-specific notes:
+  - Binance:  watchOHLCVForSymbols — native multi-symbol OHLCV stream
+  - Kraken:   watchOHLCV per symbol — native OHLCV stream
+  - Coinbase: watchOHLCV not available in Python ccxt 4.x (watchOHLCV: False)
+              Uses watchTrades instead and aggregates into 1m candles manually.
+              Symbols use USD pairs (BTC/USD not BTC/USDT).
+
+Topic naming: {exchange}.{ticker_normalized}.candles
+Examples:     binance.BTCUSDT.candles
+              coinbase.BTCUSD.candles
 """
 
 import asyncio
@@ -27,57 +34,59 @@ from app.config import (
 
 logger = logging.getLogger(__name__)
 
-# Symbols available per exchange — not all symbols exist on all exchanges
-EXCHANGE_SYMBOLS: dict = {
-    "binance":  ["BTC/USDT", "ETH/USDT", "BNB/USDT"],
-    "kraken":   ["BTC/USDT", "ETH/USDT"],           # no BNB on Kraken
-    "coinbase": ["BTC/USDT", "ETH/USDT"],           # no BNB on Coinbase
+# Per-exchange configuration
+EXCHANGE_CONFIG: dict = {
+    "binance": {
+        "symbols":  ["BTC/USDT", "ETH/USDT", "BNB/USDT"],
+        "interval": "1m",
+        "method":   "multi",    # watchOHLCVForSymbols
+    },
+    "kraken": {
+        "symbols":  ["BTC/USDT", "ETH/USDT"],
+        "interval": "1m",
+        "method":   "ohlcv",    # watchOHLCV per symbol
+    },
+    "coinbase": {
+        "symbols":  ["BTC/USD", "ETH/USD"],
+        "interval": "1m",
+        "method":   "trades",   # watchTrades → manual candle aggregation
+    },
 }
+
+# Candle state for trade-based aggregation
+# {exchange_id: {symbol: {minute_ts: {open, high, low, close, volume}}}}
+_candle_state: dict = {}
+
 
 def _topic_name(exchange: str, symbol: str) -> str:
     """BTC/USDT → BTCUSDT, topic → binance.BTCUSDT.candles"""
-    normalized = symbol.replace("/", "")
-    return f"{exchange}.{normalized}.candles"
+    return f"{exchange}.{symbol.replace('/', '')}.candles"
 
 
 def _build_topic_list() -> list[str]:
-    """Build all required topic names from configured exchanges and symbols."""
     topics = []
     for exchange_id in WATCH_EXCHANGES:
-        available = EXCHANGE_SYMBOLS.get(exchange_id, WATCH_SYMBOLS)
-        active = [s for s in WATCH_SYMBOLS if s in available]
-        for symbol in active:
+        config = EXCHANGE_CONFIG.get(exchange_id, {})
+        for symbol in config.get("symbols", WATCH_SYMBOLS):
             topics.append(_topic_name(exchange_id, symbol))
     return topics
 
 
 async def _create_topics() -> None:
-    """
-    Creates all required Kafka topics on startup if they don't exist.
-    This replaces the need to run create_kafka_topics.sh manually.
-    """
+    """Creates all Kafka topics on startup — idempotent."""
     topics = _build_topic_list()
     admin = AIOKafkaAdminClient(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
-
     await admin.start()
     try:
-        new_topics = [
-            NewTopic(
-                name=topic,
-                num_partitions=1,
-                replication_factor=1,
-            )
-            for topic in topics
-        ]
-        await admin.create_topics(new_topics)
+        await admin.create_topics([
+            NewTopic(name=t, num_partitions=1, replication_factor=1)
+            for t in topics
+        ])
         logger.info(f"Created Kafka topics: {topics}")
-
     except TopicAlreadyExistsError:
         logger.info("Kafka topics already exist — skipping creation")
-
     except Exception as e:
         logger.warning(f"Topic creation warning: {e}")
-
     finally:
         await admin.close()
 
@@ -89,9 +98,8 @@ async def _send_candle(
     interval: str,
     ohlcv: list,
 ) -> None:
-    """Serialize one OHLCV candle and send to Kafka."""
+    """Send one OHLCV candle to Kafka."""
     ts, open_, high, low, close, volume = ohlcv
-
     payload = {
         "exchange":    exchange_id,
         "ticker":      symbol,
@@ -103,29 +111,24 @@ async def _send_candle(
         "close_price": close,
         "volume":      volume,
     }
-
     topic = _topic_name(exchange_id, symbol)
-    await producer.send(
-        topic,
-        value=json.dumps(payload).encode("utf-8"),
-    )
-    logger.debug(f"[{exchange_id}] Sent {symbol} candle to {topic}")
+    await producer.send(topic, value=json.dumps(payload).encode("utf-8"))
+    logger.debug(f"[{exchange_id}] → {topic} close={close}")
 
 
-async def _stream_with_multi(
+# ── Streaming methods ─────────────────────────────────────────────────────────
+
+async def _stream_multi(
     exchange: ccxtpro.Exchange,
     exchange_id: str,
     symbols: list[str],
     producer: AIOKafkaProducer,
-    interval: str = "1m",
+    interval: str,
 ) -> None:
-    """
-    Stream using watchOHLCVForSymbols — supported by Binance.
-    Returns: {symbol: {timeframe: [[ts, o, h, l, c, v], ...]}}
-    """
+    """Binance — watchOHLCVForSymbols."""
     while True:
         candles = await exchange.watch_ohlcv_for_symbols(
-            [[symbol, interval] for symbol in symbols]
+            [[s, interval] for s in symbols]
         )
         for symbol, timeframes in candles.items():
             for tf, ohlcv_list in timeframes.items():
@@ -133,7 +136,20 @@ async def _stream_with_multi(
                     await _send_candle(producer, exchange_id, symbol, tf, ohlcv)
 
 
-async def _stream_per_symbol(
+async def _stream_ohlcv(
+    exchange: ccxtpro.Exchange,
+    exchange_id: str,
+    symbol: str,
+    producer: AIOKafkaProducer,
+    interval: str,
+) -> None:
+    """Kraken — watchOHLCV per symbol."""
+    while True:
+        for ohlcv in await exchange.watch_ohlcv(symbol, interval):
+            await _send_candle(producer, exchange_id, symbol, interval, ohlcv)
+
+
+async def _stream_trades(
     exchange: ccxtpro.Exchange,
     exchange_id: str,
     symbol: str,
@@ -141,51 +157,85 @@ async def _stream_per_symbol(
     interval: str = "1m",
 ) -> None:
     """
-    Stream using watchOHLCV per symbol — fallback for Kraken etc.
-    Returns: [[ts, o, h, l, c, v], ...]
+    Coinbase — watchTrades → manual 1m candle aggregation.
+    Each trade updates the current minute bucket. When a new minute
+    starts the completed candle is flushed to Kafka.
     """
-    while True:
-        ohlcv_list = await exchange.watch_ohlcv(symbol, interval)
-        for ohlcv in ohlcv_list:
-            await _send_candle(producer, exchange_id, symbol, interval, ohlcv)
+    global _candle_state
+    if exchange_id not in _candle_state:
+        _candle_state[exchange_id] = {}
+    if symbol not in _candle_state[exchange_id]:
+        _candle_state[exchange_id][symbol] = {}
 
+    buckets = _candle_state[exchange_id][symbol]
+
+    while True:
+        trades = await exchange.watch_trades(symbol)
+        for trade in trades:
+            ts_ms  = trade["timestamp"]
+            price  = trade["price"]
+            amount = trade["amount"]
+
+            # Floor to current minute
+            minute_ts = (ts_ms // 60_000) * 60_000
+
+            # Flush completed minutes
+            for old_ts in [t for t in list(buckets) if t < minute_ts]:
+                c = buckets.pop(old_ts)
+                await _send_candle(
+                    producer, exchange_id, symbol, interval,
+                    [old_ts, c["open"], c["high"], c["low"], c["close"], c["volume"]],
+                )
+
+            # Update or create current bucket
+            if minute_ts not in buckets:
+                buckets[minute_ts] = {
+                    "open": price, "high": price,
+                    "low":  price, "close": price, "volume": amount,
+                }
+            else:
+                b = buckets[minute_ts]
+                b["high"]   = max(b["high"], price)
+                b["low"]    = min(b["low"],  price)
+                b["close"]  = price
+                b["volume"] += amount
+
+
+# ── Main stream dispatcher ────────────────────────────────────────────────────
 
 async def _stream_exchange(
     exchange_id: str,
-    symbols: list[str],
     producer: AIOKafkaProducer,
-    interval: str = "1m",
 ) -> None:
-    """
-    Opens a CCXT Pro WebSocket connection to one exchange.
-    Automatically picks the right streaming method based on exchange support.
-    Reconnects automatically on any error.
-    """
+    """Opens connection to one exchange and streams candles. Auto-reconnects."""
+    config   = EXCHANGE_CONFIG.get(exchange_id, {})
+    symbols  = config.get("symbols",  WATCH_SYMBOLS)
+    interval = config.get("interval", "1m")
+    method   = config.get("method",   "ohlcv")
+
     credentials = EXCHANGE_CREDENTIALS.get(exchange_id, {})
     exchange: ccxtpro.Exchange = getattr(ccxtpro, exchange_id)(credentials)
 
-    available = EXCHANGE_SYMBOLS.get(exchange_id, symbols)
-    active_symbols = [s for s in symbols if s in available]
-
-    if not active_symbols:
-        logger.warning(f"[{exchange_id}] No valid symbols — skipping")
-        return
-
-    logger.info(f"[{exchange_id}] Starting stream for {active_symbols}")
+    logger.info(f"[{exchange_id}] symbols={symbols} interval={interval} method={method}")
 
     while True:
         try:
             await exchange.load_markets()
-            supports_multi = exchange.has.get("watchOHLCVForSymbols", False)
 
-            if supports_multi:
-                logger.info(f"[{exchange_id}] Using watchOHLCVForSymbols")
-                await _stream_with_multi(exchange, exchange_id, active_symbols, producer, interval)
-            else:
-                logger.info(f"[{exchange_id}] Using watchOHLCV per symbol")
+            if method == "multi":
+                await _stream_multi(exchange, exchange_id, symbols, producer, interval)
+
+            elif method == "trades":
+                # One coroutine per symbol sharing the same exchange connection
                 await asyncio.gather(*[
-                    _stream_per_symbol(exchange, exchange_id, symbol, producer, interval)
-                    for symbol in active_symbols
+                    _stream_trades(exchange, exchange_id, symbol, producer, interval)
+                    for symbol in symbols
+                ])
+
+            else:  # "ohlcv"
+                await asyncio.gather(*[
+                    _stream_ohlcv(exchange, exchange_id, symbol, producer, interval)
+                    for symbol in symbols
                 ])
 
         except Exception as e:
@@ -199,11 +249,10 @@ async def _stream_exchange(
                 pass
 
 
+# ── Entry point ───────────────────────────────────────────────────────────────
+
 async def run_producer() -> None:
-    """
-    Entry point — creates topics then starts one streaming task per exchange.
-    """
-    # Create topics automatically on every startup
+    """Creates Kafka topics then starts streaming from all configured exchanges."""
     await _create_topics()
 
     producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
@@ -212,7 +261,7 @@ async def run_producer() -> None:
 
     try:
         await asyncio.gather(*[
-            _stream_exchange(exchange_id, WATCH_SYMBOLS, producer)
+            _stream_exchange(exchange_id, producer)
             for exchange_id in WATCH_EXCHANGES
         ])
     finally:

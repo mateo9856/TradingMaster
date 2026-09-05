@@ -1,133 +1,153 @@
-import json
-import os
-from pyflink.datastream import StreamExecutionEnvironment
-from pyflink.datastream.connectors.kafka import (
-    KafkaSource,
-    KafkaOffsetsInitializer,
-)
-from pyflink.datastream.connectors.jdbc import (
-    JdbcSink,
-    JdbcConnectionOptions,
-    JdbcExecutionOptions,
-)
-from pyflink.common.serialization import SimpleStringSchema
-from pyflink.common.typeinfo import Types
-from pyflink.datastream.functions import MapFunction
+"""
+PyFlink Candle Builder Job — Table API version
 
-KAFKA_SERVERS  = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-TIMESCALE_JDBC = os.getenv(
+Reads raw candle JSON from Kafka topics and writes to PostgreSQL.
+
+This version uses PyFlink Table API with SQL DDL which is the recommended
+approach for PyFlink — no manual JAR classpath management needed.
+
+Required JARs (download once, see INSTALL.md):
+  - flink-sql-connector-kafka-4.0.1-2.0.jar
+  - flink-connector-jdbc-4.1.0-2.2.jar
+  - postgresql-42.7.3.jar
+
+Run:
+    source env_flink/bin/activate
+    python flink_jobs/candle_builder.py
+"""
+
+import os
+import logging
+from pathlib import Path
+
+from pyflink.table import EnvironmentSettings, TableEnvironment
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# ── Config from environment ───────────────────────────────────────────────────
+KAFKA_SERVERS   = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+TIMESCALE_URL   = os.getenv(
     "TIMESCALE_JDBC_URL",
     "jdbc:postgresql://localhost:5432/tradingmaster"
 )
-TIMESCALE_USER = os.getenv("TIMESCALE_USER", "user")
-TIMESCALE_PASS = os.getenv("TIMESCALE_PASS", "password")
+TIMESCALE_USER  = os.getenv("TIMESCALE_USER", "user")
+TIMESCALE_PASS  = os.getenv("TIMESCALE_PASS", "mysecretpassword")
 
-# Kafka topics to consume — one per exchange+ticker combination
-KAFKA_TOPICS = [
+# Kafka topics to consume
+KAFKA_TOPICS = ",".join([
     "binance.BTCUSDT.candles",
     "binance.ETHUSDT.candles",
+    "binance.BNBUSDT.candles",
     "kraken.BTCUSDT.candles",
     "kraken.ETHUSDT.candles",
-    "coinbase.BTCUSDT.candles",
-    "coinbase.ETHUSDT.candles",
+    "coinbase.BTCUSD.candles",
+    "coinbase.ETHUSD.candles",
+])
+
+# ── JAR paths — download these once (see INSTALL.md) ─────────────────────────
+JARS_DIR = Path(__file__).parent / "jars"
+JARS = [
+    JARS_DIR / "flink-sql-connector-kafka-4.0.1-2.0.jar",
+    JARS_DIR / "flink-connector-jdbc-core-4.0.0-2.0.jar",   # Flink 2.x: JDBC split by DB
+    JARS_DIR / "postgresql-42.7.3.jar",
 ]
 
-# SQL upsert — inserts new candles, skips duplicates by exchange+ticker+timestamp
-INSERT_SQL = """
-    INSERT INTO candles
-        (exchange, ticker, interval, timestamp, open_price, high_price, low_price, close_price, volume)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT (exchange, ticker, timestamp) DO UPDATE SET
-        open_price  = EXCLUDED.open_price,
-        high_price  = EXCLUDED.high_price,
-        low_price   = EXCLUDED.low_price,
-        close_price = EXCLUDED.close_price,
-        volume      = EXCLUDED.volume
-"""
 
-
-class ParseCandle(MapFunction):
-    """Deserializes JSON message from Kafka into a typed tuple."""
-
-    def map(self, value: str):
-        d = json.loads(value)
-        return (
-            d["exchange"],
-            d["ticker"],
-            d.get("interval", "1m"),
-            d["timestamp"],      # ISO string — cast to TIMESTAMP in PostgreSQL
-            float(d["open_price"]),
-            float(d["high_price"]),
-            float(d["low_price"]),
-            float(d["close_price"]),
-            float(d["volume"]),
+def _check_jars() -> str:
+    """Verify all JARs exist and return pipeline.jars config string."""
+    missing = [j for j in JARS if not j.exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing JAR files in {JARS_DIR}/:\n"
+            + "\n".join(f"  - {j.name}" for j in missing)
+            + "\n\nRun: bash scripts/download_flink_jars.sh"
         )
+    return ";".join(f"file://{j.resolve()}" for j in JARS)
 
 
 def main():
-    env = StreamExecutionEnvironment.get_execution_environment()
-    env.set_parallelism(2)  # increase for production
+    logger.info("Starting TradingMaster Flink Candle Builder...")
 
-    # ── Kafka Source ──────────────────────────────────────────────────────────
-    source = (
-        KafkaSource.builder()
-        .set_bootstrap_servers(KAFKA_SERVERS)
-        .set_topics(*KAFKA_TOPICS)
-        .set_group_id("flink-candle-builder")
-        .set_starting_offsets(KafkaOffsetsInitializer.latest())
-        .set_value_only_deserializer(SimpleStringSchema())
-        .build()
-    )
+    # ── Setup ─────────────────────────────────────────────────────────────────
+    jar_config = _check_jars()
 
-    stream = env.from_source(
-        source=source,
-        watermark_strategy=None,
-        source_name="KafkaCandleSource",
-    )
+    env_settings = EnvironmentSettings.in_streaming_mode()
+    t_env = TableEnvironment.create(env_settings)
+    t_env.get_config().set("pipeline.jars", jar_config)
+    t_env.get_config().set("parallelism.default", "2")
 
-    # ── Parse JSON → typed tuple ──────────────────────────────────────────────
-    parsed = stream.map(
-        ParseCandle(),
-        output_type=Types.TUPLE([
-            Types.STRING(),  # exchange
-            Types.STRING(),  # ticker
-            Types.STRING(),  # interval
-            Types.STRING(),  # timestamp
-            Types.DOUBLE(),  # open_price
-            Types.DOUBLE(),  # high_price
-            Types.DOUBLE(),  # low_price
-            Types.DOUBLE(),  # close_price
-            Types.DOUBLE(),  # volume
-        ]),
-    )
+    logger.info(f"Kafka topics: {KAFKA_TOPICS}")
+    logger.info(f"PostgreSQL:   {TIMESCALE_URL}")
 
-    # ── JDBC Sink → TimescaleDB ───────────────────────────────────────────────
-    jdbc_sink = JdbcSink.sink(
-        sql=INSERT_SQL,
-        type_info=Types.TUPLE([
-            Types.STRING(), Types.STRING(), Types.STRING(), Types.STRING(),
-            Types.DOUBLE(), Types.DOUBLE(), Types.DOUBLE(), Types.DOUBLE(), Types.DOUBLE(),
-        ]),
-        connection_options=(
-            JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
-            .with_url(TIMESCALE_JDBC)
-            .with_driver_name("org.postgresql.Driver")
-            .with_user_name(TIMESCALE_USER)
-            .with_password(TIMESCALE_PASS)
-            .build()
-        ),
-        execution_options=(
-            JdbcExecutionOptions.builder()
-            .with_batch_interval_ms(500)   # flush every 500ms
-            .with_batch_size(100)          # or every 100 rows
-            .with_max_retries(3)
-            .build()
-        ),
-    )
+    # ── Kafka Source Table ────────────────────────────────────────────────────
+    t_env.execute_sql(f"""
+        CREATE TABLE kafka_candles (
+            exchange    STRING,
+            ticker      STRING,
+            `interval`  STRING,
+            `timestamp` STRING,
+            open_price  DOUBLE,
+            high_price  DOUBLE,
+            low_price   DOUBLE,
+            close_price DOUBLE,
+            volume      DOUBLE,
+            proc_time   AS PROCTIME()
+        ) WITH (
+            'connector'                     = 'kafka',
+            'topic'                         = '{KAFKA_TOPICS}',
+            'properties.bootstrap.servers'  = '{KAFKA_SERVERS}',
+            'properties.group.id'           = 'flink-candle-builder',
+            'scan.startup.mode'             = 'latest-offset',
+            'format'                        = 'json',
+            'json.fail-on-missing-field'    = 'false',
+            'json.ignore-parse-errors'      = 'true'
+        )
+    """)
 
-    parsed.add_sink(jdbc_sink)
+    # ── PostgreSQL Sink Table ─────────────────────────────────────────────────
+    t_env.execute_sql(f"""
+        CREATE TABLE postgres_candles (
+            exchange    STRING,
+            ticker      STRING,
+            `interval`  STRING,
+            `timestamp` TIMESTAMP(3),
+            open_price  DOUBLE,
+            high_price  DOUBLE,
+            low_price   DOUBLE,
+            close_price DOUBLE,
+            volume      DOUBLE
+        ) WITH (
+            'connector'  = 'jdbc',
+            'url'        = '{TIMESCALE_URL}',
+            'table-name' = 'candles',
+            'username'   = '{TIMESCALE_USER}',
+            'password'   = '{TIMESCALE_PASS}',
+            'sink.buffer-flush.max-rows'       = '100',
+            'sink.buffer-flush.interval'       = '5s',
+            'sink.max-retries'                 = '3'
+        )
+    """)
 
-    env.execute("TradingMaster — Candle Builder")
+    # ── Stream: Kafka → PostgreSQL ────────────────────────────────────────────
+    logger.info("Starting stream: Kafka → PostgreSQL...")
+    t_env.execute_sql("""
+        INSERT INTO postgres_candles
+        SELECT
+            exchange,
+            ticker,
+            `interval`,
+            TO_TIMESTAMP(`timestamp`, 'yyyy-MM-dd''T''HH:mm:ss'),
+            open_price,
+            high_price,
+            low_price,
+            close_price,
+            volume
+        FROM kafka_candles
+    """).wait()
 
 
 if __name__ == "__main__":
