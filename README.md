@@ -64,6 +64,7 @@ COINBASE_API_SECRET=
 ```
 
 The API creates the `candles` table on startup. The Flink job additionally reads `TIMESCALE_JDBC_URL`, `TIMESCALE_USER`, and `TIMESCALE_PASS`.
+These variables must be exported in the shell running the job; activating `env_flink` does not load `.env` automatically. When the job runs on the host with the included Docker Compose setup, use `jdbc:postgresql://localhost:5432/tradingmaster`. When it runs in a Compose container, use `jdbc:postgresql://postgres:5432/tradingmaster`.
 
 ## Running the API
 
@@ -120,11 +121,26 @@ Topics use `{exchange}.{TICKER_WITHOUT_SLASHES}.candles`, for example `binance.B
 
 ## Running the Flink job
 
-After installing PyFlink and making the PostgreSQL JDBC driver available to Flink:
+After installing PyFlink and making the JDBC dependencies available to Flink:
+
+The JDBC connector is modular in Flink 2.x. The `app/flink_jobs/jars/` directory must contain all of these files:
+
+- `flink-connector-jdbc-core-4.0.0-2.0.jar`
+- `flink-connector-jdbc-postgres-4.0.0-2.0.jar`
+- `postgresql-42.7.3.jar`
+
+The PostgreSQL dialect JAR is required in addition to the core JAR. Without it, Flink reports that only the Derby factory is available.
+
+For a host-side run against the Compose database:
 
 ```bash
+export TIMESCALE_JDBC_URL='jdbc:postgresql://localhost:5432/tradingmaster'
+export TIMESCALE_USER='user'
+export TIMESCALE_PASS='mysecretpassword'
 python -m app.flink_jobs.candle_builder
 ```
+
+For a job running inside the Compose network, set `TIMESCALE_JDBC_URL` to `jdbc:postgresql://postgres:5432/tradingmaster` instead.
 
 The current job consumes six hard-coded topics for the default exchanges and symbols and writes records through a batched JDBC sink with retries.
 

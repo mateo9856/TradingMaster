@@ -3,12 +3,13 @@ PyFlink Candle Builder Job — Table API version
 
 Reads raw candle JSON from Kafka topics and writes to PostgreSQL.
 
-This version uses PyFlink Table API with SQL DDL which is the recommended
-approach for PyFlink — no manual JAR classpath management needed.
+This version uses PyFlink Table API with SQL DDL. The required connector JARs
+are added to the local TableEnvironment at startup.
 
-Required JARs (download once, see INSTALL.md):
+Required JARs (download once, see README.md):
   - flink-sql-connector-kafka-4.0.1-2.0.jar
-  - flink-connector-jdbc-4.1.0-2.2.jar
+  - flink-connector-jdbc-core-4.0.0-2.0.jar
+  - flink-connector-jdbc-postgres-4.0.0-2.0.jar
   - postgresql-42.7.3.jar
 
 Run:
@@ -38,7 +39,8 @@ TIMESCALE_USER  = os.getenv("TIMESCALE_USER", "user")
 TIMESCALE_PASS  = os.getenv("TIMESCALE_PASS", "mysecretpassword")
 
 # Kafka topics to consume
-KAFKA_TOPICS = ",".join([
+# Flink's Kafka SQL connector expects a semicolon-separated topic list.
+KAFKA_TOPICS = ";".join([
     "binance.BTCUSDT.candles",
     "binance.ETHUSDT.candles",
     "binance.BNBUSDT.candles",
@@ -53,6 +55,7 @@ JARS_DIR = Path(__file__).parent / "jars"
 JARS = [
     JARS_DIR / "flink-sql-connector-kafka-4.0.1-2.0.jar",
     JARS_DIR / "flink-connector-jdbc-core-4.0.0-2.0.jar",   # Flink 2.x: JDBC split by DB
+    JARS_DIR / "flink-connector-jdbc-postgres-4.0.0-2.0.jar",
     JARS_DIR / "postgresql-42.7.3.jar",
 ]
 
@@ -64,7 +67,9 @@ def _check_jars() -> str:
         raise FileNotFoundError(
             f"Missing JAR files in {JARS_DIR}/:\n"
             + "\n".join(f"  - {j.name}" for j in missing)
-            + "\n\nRun: bash scripts/download_flink_jars.sh"
+            + "\n\nDownload the missing files from Maven Central. For PostgreSQL, "
+              "you need both flink-connector-jdbc-core and "
+              "flink-connector-jdbc-postgres, plus the PostgreSQL JDBC driver."
         )
     return ";".join(f"file://{j.resolve()}" for j in JARS)
 
