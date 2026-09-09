@@ -1,18 +1,14 @@
 """
 Exchange → Kafka producer
 
-Uses CCXT Pro to stream live OHLCV candles from multiple exchanges.
+Reads exchange and symbol configuration from the database (exchanges + symbols tables)
+instead of hardcoded EXCHANGE_CONFIG. Adding a new exchange or symbol only
+requires a DB row — no code change or deploy needed.
 
-Exchange-specific notes:
-  - Binance:  watchOHLCVForSymbols — native multi-symbol OHLCV stream
-  - Kraken:   watchOHLCV per symbol — native OHLCV stream
-  - Coinbase: watchOHLCV not available in Python ccxt 4.x (watchOHLCV: False)
-              Uses watchTrades instead and aggregates into 1m candles manually.
-              Symbols use USD pairs (BTC/USD not BTC/USDT).
-
-Topic naming: {exchange}.{ticker_normalized}.candles
-Examples:     binance.BTCUSDT.candles
-              coinbase.BTCUSD.candles
+Exchange streaming methods:
+  - binance:  watchOHLCVForSymbols (multi)
+  - kraken:   watchOHLCV per symbol (ohlcv)
+  - coinbase: watchTrades → manual 1m candle aggregation (trades)
 """
 
 import asyncio
@@ -24,57 +20,65 @@ import ccxt.pro as ccxtpro
 from aiokafka import AIOKafkaProducer
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
 from aiokafka.errors import TopicAlreadyExistsError
+from sqlalchemy import select
 
-from app.config import (
-    KAFKA_BOOTSTRAP_SERVERS,
-    WATCH_SYMBOLS,
-    WATCH_EXCHANGES,
-    EXCHANGE_CREDENTIALS,
-)
+from app.config import KAFKA_BOOTSTRAP_SERVERS, EXCHANGE_CREDENTIALS
+from app.models.database import AsyncSessionLocal
+from app.models.exchange import Exchange, Symbol
 
 logger = logging.getLogger(__name__)
 
-# Per-exchange configuration
-EXCHANGE_CONFIG: dict = {
-    "binance": {
-        "symbols":  ["BTC/USDT", "ETH/USDT", "BNB/USDT"],
-        "interval": "1m",
-        "method":   "multi",    # watchOHLCVForSymbols
-    },
-    "kraken": {
-        "symbols":  ["BTC/USDT", "ETH/USDT"],
-        "interval": "1m",
-        "method":   "ohlcv",    # watchOHLCV per symbol
-    },
-    "coinbase": {
-        "symbols":  ["BTC/USD", "ETH/USD"],
-        "interval": "1m",
-        "method":   "trades",   # watchTrades → manual candle aggregation
-    },
-}
-
-# Candle state for trade-based aggregation
-# {exchange_id: {symbol: {minute_ts: {open, high, low, close, volume}}}}
+# Candle state for trade-based aggregation (Coinbase)
 _candle_state: dict = {}
 
 
 def _topic_name(exchange: str, symbol: str) -> str:
-    """BTC/USDT → BTCUSDT, topic → binance.BTCUSDT.candles"""
     return f"{exchange}.{symbol.replace('/', '')}.candles"
 
 
-def _build_topic_list() -> list[str]:
+async def _load_exchange_config() -> list[dict]:
+    """
+    Loads enabled exchanges and their enabled symbols from the database.
+    Returns a list of dicts ready to use for streaming.
+    """
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(
+            select(Exchange).where(Exchange.enabled == True)
+        )
+        exchanges = result.scalars().all()
+
+        config = []
+        for exc in exchanges:
+            sym_result = await db.execute(
+                select(Symbol).where(
+                    Symbol.exchange_id == exc.id,
+                    Symbol.enabled == True,
+                )
+            )
+            symbols = sym_result.scalars().all()
+
+            config.append({
+                "name":     exc.name,
+                "method":   exc.method,
+                "symbols":  [s.ticker for s in symbols],
+                "interval": symbols[0].interval if symbols else "1m",
+            })
+
+    logger.info(f"Loaded exchange config from DB: {[c['name'] for c in config]}")
+    return config
+
+
+async def _build_topic_list(config: list[dict]) -> list[str]:
     topics = []
-    for exchange_id in WATCH_EXCHANGES:
-        config = EXCHANGE_CONFIG.get(exchange_id, {})
-        for symbol in config.get("symbols", WATCH_SYMBOLS):
-            topics.append(_topic_name(exchange_id, symbol))
+    for exc in config:
+        for symbol in exc["symbols"]:
+            topics.append(_topic_name(exc["name"], symbol))
     return topics
 
 
-async def _create_topics() -> None:
-    """Creates all Kafka topics on startup — idempotent."""
-    topics = _build_topic_list()
+async def _create_topics(config: list[dict]) -> None:
+    """Creates all required Kafka topics based on DB config."""
+    topics = await _build_topic_list(config)
     admin = AIOKafkaAdminClient(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
     await admin.start()
     try:
@@ -98,7 +102,6 @@ async def _send_candle(
     interval: str,
     ohlcv: list,
 ) -> None:
-    """Send one OHLCV candle to Kafka."""
     ts, open_, high, low, close, volume = ohlcv
     payload = {
         "exchange":    exchange_id,
@@ -116,15 +119,7 @@ async def _send_candle(
     logger.debug(f"[{exchange_id}] → {topic} close={close}")
 
 
-# ── Streaming methods ─────────────────────────────────────────────────────────
-
-async def _stream_multi(
-    exchange: ccxtpro.Exchange,
-    exchange_id: str,
-    symbols: list[str],
-    producer: AIOKafkaProducer,
-    interval: str,
-) -> None:
+async def _stream_multi(exchange, exchange_id, symbols, producer, interval):
     """Binance — watchOHLCVForSymbols."""
     while True:
         candles = await exchange.watch_ohlcv_for_symbols(
@@ -136,31 +131,15 @@ async def _stream_multi(
                     await _send_candle(producer, exchange_id, symbol, tf, ohlcv)
 
 
-async def _stream_ohlcv(
-    exchange: ccxtpro.Exchange,
-    exchange_id: str,
-    symbol: str,
-    producer: AIOKafkaProducer,
-    interval: str,
-) -> None:
+async def _stream_ohlcv(exchange, exchange_id, symbol, producer, interval):
     """Kraken — watchOHLCV per symbol."""
     while True:
         for ohlcv in await exchange.watch_ohlcv(symbol, interval):
             await _send_candle(producer, exchange_id, symbol, interval, ohlcv)
 
 
-async def _stream_trades(
-    exchange: ccxtpro.Exchange,
-    exchange_id: str,
-    symbol: str,
-    producer: AIOKafkaProducer,
-    interval: str = "1m",
-) -> None:
-    """
-    Coinbase — watchTrades → manual 1m candle aggregation.
-    Each trade updates the current minute bucket. When a new minute
-    starts the completed candle is flushed to Kafka.
-    """
+async def _stream_trades(exchange, exchange_id, symbol, producer, interval="1m"):
+    """Coinbase — watchTrades → manual 1m candle aggregation."""
     global _candle_state
     if exchange_id not in _candle_state:
         _candle_state[exchange_id] = {}
@@ -175,11 +154,8 @@ async def _stream_trades(
             ts_ms  = trade["timestamp"]
             price  = trade["price"]
             amount = trade["amount"]
-
-            # Floor to current minute
             minute_ts = (ts_ms // 60_000) * 60_000
 
-            # Flush completed minutes
             for old_ts in [t for t in list(buckets) if t < minute_ts]:
                 c = buckets.pop(old_ts)
                 await _send_candle(
@@ -187,7 +163,6 @@ async def _stream_trades(
                     [old_ts, c["open"], c["high"], c["low"], c["close"], c["volume"]],
                 )
 
-            # Update or create current bucket
             if minute_ts not in buckets:
                 buckets[minute_ts] = {
                     "open": price, "high": price,
@@ -201,17 +176,12 @@ async def _stream_trades(
                 b["volume"] += amount
 
 
-# ── Main stream dispatcher ────────────────────────────────────────────────────
-
-async def _stream_exchange(
-    exchange_id: str,
-    producer: AIOKafkaProducer,
-) -> None:
-    """Opens connection to one exchange and streams candles. Auto-reconnects."""
-    config   = EXCHANGE_CONFIG.get(exchange_id, {})
-    symbols  = config.get("symbols",  WATCH_SYMBOLS)
-    interval = config.get("interval", "1m")
-    method   = config.get("method",   "ohlcv")
+async def _stream_exchange(exc_config: dict, producer: AIOKafkaProducer) -> None:
+    """Streams candles from one exchange. Auto-reconnects on error."""
+    exchange_id = exc_config["name"]
+    symbols     = exc_config["symbols"]
+    interval    = exc_config["interval"]
+    method      = exc_config["method"]
 
     credentials = EXCHANGE_CREDENTIALS.get(exchange_id, {})
     exchange: ccxtpro.Exchange = getattr(ccxtpro, exchange_id)(credentials)
@@ -224,15 +194,12 @@ async def _stream_exchange(
 
             if method == "multi":
                 await _stream_multi(exchange, exchange_id, symbols, producer, interval)
-
             elif method == "trades":
-                # One coroutine per symbol sharing the same exchange connection
                 await asyncio.gather(*[
                     _stream_trades(exchange, exchange_id, symbol, producer, interval)
                     for symbol in symbols
                 ])
-
-            else:  # "ohlcv"
+            else:
                 await asyncio.gather(*[
                     _stream_ohlcv(exchange, exchange_id, symbol, producer, interval)
                     for symbol in symbols
@@ -241,7 +208,6 @@ async def _stream_exchange(
         except Exception as e:
             logger.warning(f"[{exchange_id}] Stream error: {e} — reconnecting in 5s")
             await asyncio.sleep(5)
-
         finally:
             try:
                 await exchange.close()
@@ -249,11 +215,15 @@ async def _stream_exchange(
                 pass
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
-
 async def run_producer() -> None:
-    """Creates Kafka topics then starts streaming from all configured exchanges."""
-    await _create_topics()
+    """Loads config from DB, creates topics, starts all exchange streams."""
+    config = await _load_exchange_config()
+
+    if not config:
+        logger.warning("No enabled exchanges found in DB — producer idle")
+        return
+
+    await _create_topics(config)
 
     producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
     await producer.start()
@@ -261,8 +231,8 @@ async def run_producer() -> None:
 
     try:
         await asyncio.gather(*[
-            _stream_exchange(exchange_id, producer)
-            for exchange_id in WATCH_EXCHANGES
+            _stream_exchange(exc, producer)
+            for exc in config
         ])
     finally:
         await producer.stop()

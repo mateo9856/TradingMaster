@@ -20,6 +20,8 @@ from unittest.mock import AsyncMock, patch
 
 from app.models.database import Base, get_db
 from app.models.candle import Candle as CandleORM
+from app.models.candle_history import CandleHistory
+from app.models.exchange import Exchange, Symbol
 
 # Use a file-backed SQLite database so committed seed rows remain visible
 # across pytest-asyncio event loops and FastAPI request sessions.
@@ -43,7 +45,7 @@ TestingSessionLocal = async_sessionmaker(
 
 # ── DB lifecycle ──────────────────────────────────────────────────────────────
 
-@pytest_asyncio.fixture(autouse=True)
+@pytest_asyncio.fixture
 async def reset_database():
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -56,7 +58,7 @@ async def reset_database():
 # ── Shared session ────────────────────────────────────────────────────────────
 
 @pytest_asyncio.fixture
-async def db_session() -> AsyncSession:
+async def db_session(reset_database) -> AsyncSession:
     async with TestingSessionLocal() as session:
         yield session
 
@@ -64,7 +66,7 @@ async def db_session() -> AsyncSession:
 # ── FastAPI client ────────────────────────────────────────────────────────────
 
 @pytest_asyncio.fixture
-async def client() -> AsyncClient:
+async def client(reset_database) -> AsyncClient:
     async def override_get_db():
         async with TestingSessionLocal() as session:
             yield session
@@ -131,6 +133,45 @@ async def multi_candles(db_session: AsyncSession) -> list[CandleORM]:
             timestamp=datetime(2026, 6, 23, 12, 5, 0),
             open_price=65200.0, high_price=65500.0, low_price=65100.0,
             close_price=65400.0, volume=42.1,
+        ),
+    ]
+    db_session.add_all(candles)
+    await db_session.commit()
+    return candles
+
+
+@pytest_asyncio.fixture
+async def exchange(db_session: AsyncSession) -> Exchange:
+    exchange = Exchange(name="binance", method="multi")
+    db_session.add(exchange)
+    await db_session.commit()
+    await db_session.refresh(exchange)
+    return exchange
+
+
+@pytest_asyncio.fixture
+async def history_candles(db_session: AsyncSession) -> list[CandleHistory]:
+    candles = [
+        CandleHistory(
+            exchange="binance", ticker="BTC/USDT", interval="1m",
+            trade_date=datetime(2026, 6, 22).date(),
+            timestamp=datetime(2026, 6, 22, 12, 0),
+            open_price=65000.0, high_price=65300.0, low_price=64850.0,
+            close_price=65200.0, volume=15.4,
+        ),
+        CandleHistory(
+            exchange="kraken", ticker="BTC/USDT", interval="1m",
+            trade_date=datetime(2026, 6, 23).date(),
+            timestamp=datetime(2026, 6, 23, 12, 0),
+            open_price=65100.0, high_price=65400.0, low_price=64900.0,
+            close_price=65300.0, volume=10.2,
+        ),
+        CandleHistory(
+            exchange="binance", ticker="ETH/USDT", interval="1m",
+            trade_date=datetime(2026, 6, 22).date(),
+            timestamp=datetime(2026, 6, 22, 12, 0),
+            open_price=3500.0, high_price=3550.0, low_price=3490.0,
+            close_price=3525.0, volume=88.5,
         ),
     ]
     db_session.add_all(candles)

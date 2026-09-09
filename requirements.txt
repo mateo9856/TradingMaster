@@ -19,6 +19,10 @@ pydantic>=2.0
 python-dotenv
 orjson                     # faster JSON (ccxt recommended for WS throughput)
 
+# ── EOD archive / Parquet export ──────────────────────────────────────────────
+pandas                     # DataFrame for Parquet export
+pyarrow                    # Parquet engine
+
 # ── PyFlink — install SEPARATELY, see INSTALL.md ─────────────────────────────
 # Do NOT include apache-flink here — it requires Java 11+ to be installed first
 # and must be pinned to match your Python version exactly.
