@@ -1,7 +1,7 @@
-from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from .database import Base
+from app.helpers.time import utc_now_naive
 
 
 class Exchange(Base):
@@ -15,7 +15,7 @@ class Exchange(Base):
     name       = Column(String, nullable=False, unique=True)   # "binance", "kraken"
     method     = Column(String, nullable=False)                 # "multi", "ohlcv", "trades"
     enabled    = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     symbols = relationship("Symbol", back_populates="exchange_rel", cascade="all, delete-orphan")
 
@@ -32,7 +32,7 @@ class Symbol(Base):
     ticker      = Column(String, nullable=False)    # "BTC/USDT", "BTC/USD"
     interval    = Column(String, nullable=False, default="1m")
     enabled     = Column(Boolean, nullable=False, default=True)
-    created_at  = Column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at  = Column(DateTime, nullable=False, default=utc_now_naive)
 
     exchange_rel = relationship("Exchange", back_populates="symbols")
 

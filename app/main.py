@@ -82,6 +82,8 @@ app = FastAPI(
     version="1.0.0",
     description="Real-time crypto candle data from Binance, Kraken and Coinbase via Kafka + Flink",
     lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc"
 )
 
 app.include_router(market.router)
@@ -89,6 +91,6 @@ app.include_router(exchanges.router)
 app.include_router(history.router)
 
 
-@app.get("/health")
+@app.get("/health", tags=["health"], summary="Liveness check")
 async def health():
     return {"status": "ok"}

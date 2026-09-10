@@ -3,11 +3,10 @@ Unit tests for Pydantic schemas — no DB, no HTTP, pure validation.
 """
 
 import pytest
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import ValidationError
 
-from app.models.candle import CandleBase, CandleCreate, CandleResponse
-from app.models.api_response import ApiResponse
+from app.schemas import ApiResponse, CandleBase, CandleCreate, CandleResponse
 
 
 class TestCandleBase:
@@ -66,13 +65,13 @@ class TestCandleBase:
 class TestCandleCreate:
 
     def test_timestamp_defaults_to_now(self):
-        before = datetime.now()
+        before = datetime.now(timezone.utc).replace(tzinfo=None)
         candle = CandleCreate(
             exchange="binance", ticker="BTC/USDT", interval="1m",
             open_price=65000.0, high_price=65300.0, low_price=64850.0,
             close_price=65200.0, volume=15.4,
         )
-        after = datetime.now()
+        after = datetime.now(timezone.utc).replace(tzinfo=None)
         assert before <= candle.timestamp <= after
 
     def test_explicit_timestamp_accepted(self):

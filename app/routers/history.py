@@ -6,18 +6,17 @@ GET /api/v1/history/{ticker}/export — trigger manual EOD job for a date
 """
 
 import logging
-from datetime import date, datetime
+from datetime import date
 from typing import List, Optional
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_db
 from app.models.candle_history import CandleHistory
-from app.models.api_response import ApiResponse
+from app.schemas import ApiResponse, CandleHistoryResponse
 
 logger = logging.getLogger(__name__)
 
@@ -25,24 +24,6 @@ router = APIRouter(
     prefix="/api/v1/history",
     tags=["history"],
 )
-
-
-class CandleHistoryResponse(BaseModel):
-    id:          int
-    exchange:    str
-    ticker:      str
-    interval:    str
-    trade_date:  date
-    timestamp:   datetime
-    open_price:  float
-    high_price:  float
-    low_price:   float
-    close_price: float
-    volume:      float
-    archived_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 @router.get("/{ticker:path}", response_model=ApiResponse[List[CandleHistoryResponse]])

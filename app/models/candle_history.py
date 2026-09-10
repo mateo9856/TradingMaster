@@ -1,6 +1,6 @@
-from datetime import datetime
 from sqlalchemy import Column, Integer, String, Float, DateTime, Date, Index
 from .database import Base
+from app.helpers.time import utc_now_naive
 
 
 class CandleHistory(Base):
@@ -26,7 +26,7 @@ class CandleHistory(Base):
     low_price   = Column(Float, nullable=False)
     close_price = Column(Float, nullable=False)
     volume      = Column(Float, nullable=False)
-    archived_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    archived_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     __table_args__ = (
         Index(

@@ -12,46 +12,23 @@ PUT  /api/v1/symbols/{id}/toggle    — enable/disable symbol
 
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_db
 from app.models.exchange import Exchange, Symbol
-from app.models.api_response import ApiResponse
+from app.schemas import (
+    ApiResponse,
+    ExchangeCreate,
+    ExchangeResponse,
+    SymbolCreate,
+    SymbolResponse,
+)
 
 router = APIRouter(
     prefix="/api/v1/exchanges",
     tags=["exchanges"],
 )
-
-
-# ── Pydantic schemas ──────────────────────────────────────────────────────────
-
-class ExchangeCreate(BaseModel):
-    name:   str = Field(..., examples=["binance"])
-    method: str = Field(..., examples=["multi", "ohlcv", "trades"])
-
-class ExchangeResponse(BaseModel):
-    id:      int
-    name:    str
-    method:  str
-    enabled: bool
-    class Config:
-        from_attributes = True
-
-class SymbolCreate(BaseModel):
-    ticker:   str = Field(..., examples=["BTC/USDT"])
-    interval: str = Field("1m", examples=["1m", "5m", "1h"])
-
-class SymbolResponse(BaseModel):
-    id:          int
-    exchange_id: int
-    ticker:      str
-    interval:    str
-    enabled:     bool
-    class Config:
-        from_attributes = True
 
 
 # ── Exchange endpoints ────────────────────────────────────────────────────────

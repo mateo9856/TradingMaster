@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd
@@ -82,7 +82,7 @@ async def test_cleanup_old_candles_uses_retention_cutoff():
     assert deleted == 3
     query = db.execute.call_args.args[0]
     cutoff = query.whereclause.right.value
-    expected = datetime.now(timezone.utc) - timedelta(days=eod_archive.RETENTION_DAYS)
+    expected = eod_archive.utc_now_naive() - timedelta(days=eod_archive.RETENTION_DAYS)
     assert abs((expected - cutoff).total_seconds()) < 5
     db.commit.assert_awaited_once()
 

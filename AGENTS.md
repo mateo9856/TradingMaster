@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-- `app/` contains the application package. `main.py` defines the FastAPI app and lifecycle; `routers/` exposes HTTP/WebSocket endpoints; `models/` contains SQLAlchemy and Pydantic models; `kafka/` handles exchange-to-Kafka streaming; and `flink_jobs/` contains the Kafka-to-TimescaleDB pipeline.
+- `app/` contains the application package. `main.py` defines the FastAPI app and lifecycle; `routers/` exposes HTTP/WebSocket endpoints; `models/` contains SQLAlchemy ORM models; `schemas/` contains Pydantic request/response schemas; `helpers/` contains reusable application helpers; `kafka/` handles exchange-to-Kafka streaming; and `flink_jobs/` contains the Kafka-to-TimescaleDB pipeline.
 - `tests/` contains asynchronous API/integration tests and unit tests (`tests/unit/`). Shared fixtures are in `tests/conftest.py`.
 - `requirements.txt` lists Python dependencies. `trading_master.db` is local development data; do not commit credentials or production data.
 

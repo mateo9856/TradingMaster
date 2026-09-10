@@ -23,7 +23,7 @@ Run manually:
 """
 
 import logging
-from datetime import datetime, timedelta, date, timezone
+from datetime import datetime, timedelta, date
 from pathlib import Path
 
 from sqlalchemy import select, delete
@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.candle import Candle
 from app.models.candle_history import CandleHistory
 from app.models.database import AsyncSessionLocal
+from app.helpers.time import utc_now_naive
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ async def _cleanup_old_candles(db: AsyncSession) -> int:
     Deletes candles older than RETENTION_DAYS from the hot candles table.
     Returns number of deleted rows.
     """
-    cutoff = datetime.now(timezone.utc) - timedelta(days=RETENTION_DAYS)
+    cutoff = utc_now_naive() - timedelta(days=RETENTION_DAYS)
     result = await db.execute(
         delete(Candle).where(Candle.timestamp < cutoff)
     )
@@ -153,7 +154,7 @@ async def run_eod_job(target_date: date | None = None) -> None:
     Pass target_date to backfill a specific date.
     """
     if target_date is None:
-        target_date = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+        target_date = (utc_now_naive() - timedelta(days=1)).date()
 
     logger.info(f"Starting EOD archive job for {target_date}...")
 

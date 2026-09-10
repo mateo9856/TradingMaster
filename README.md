@@ -18,7 +18,9 @@ app/
 ├── main.py                       FastAPI application and lifecycle management
 ├── config.py                     Environment-based configuration
 ├── routers/market.py             REST and WebSocket market endpoints
-├── models/                       SQLAlchemy ORM and Pydantic schemas
+├── models/                       SQLAlchemy ORM models and database helpers
+├── schemas/                      Pydantic request and response schemas
+├── helpers/                      Reusable application helpers
 ├── kafka/producer.py             CCXT Pro to Kafka producer
 ├── flink_jobs/candle_builder.py  Kafka to TimescaleDB Flink job
 └── producer_runner.py            Standalone producer entry point
@@ -104,7 +106,7 @@ curl -X POST http://localhost:8000/api/v1/market/candles \
   -d '{"exchange":"binance","ticker":"BTC/USDT","interval":"1m","open_price":65000,"high_price":65300,"low_price":64850,"close_price":65200,"volume":15.4}'
 ```
 
-`POST /api/v1/market/candles` supports testing, manual insertion, and backfilling. The timestamp is optional and defaults to the current local time. Prices and volume must be non-negative.
+`POST /api/v1/market/candles` supports testing, manual insertion, and backfilling. The timestamp is optional and defaults to the current UTC time. Prices and volume must be non-negative.
 
 ### Stream live candles
 

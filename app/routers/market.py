@@ -9,8 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import KAFKA_BOOTSTRAP_SERVERS
-from app.models import CandleCreate, CandleResponse, ApiResponse, Candle
+from app.models.candle import Candle
 from app.models.database import get_db
+from app.schemas import ApiResponse, CandleCreate, CandleResponse
 
 logger = logging.getLogger(__name__)
 

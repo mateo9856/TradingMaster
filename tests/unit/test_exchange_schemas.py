@@ -1,7 +1,6 @@
 from datetime import date, datetime
 
-from app.routers.exchanges import ExchangeCreate, SymbolCreate
-from app.routers.history import CandleHistoryResponse
+from app.schemas import CandleHistoryResponse, ExchangeCreate, SymbolCreate
 
 
 def test_exchange_and_symbol_schema_defaults():

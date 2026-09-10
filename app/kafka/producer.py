@@ -14,7 +14,7 @@ Exchange streaming methods:
 import asyncio
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 import ccxt.pro as ccxtpro
 from aiokafka import AIOKafkaProducer
@@ -103,11 +103,13 @@ async def _send_candle(
     ohlcv: list,
 ) -> None:
     ts, open_, high, low, close, volume = ohlcv
+    timestamp = datetime.fromtimestamp(ts / 1000, timezone.utc).replace(tzinfo=None)
     payload = {
         "exchange":    exchange_id,
         "ticker":      symbol,
         "interval":    interval,
-        "timestamp":   datetime.utcfromtimestamp(ts / 1000).isoformat(),
+        # Database timestamps are TIMESTAMP WITHOUT TIME ZONE values stored as UTC.
+        "timestamp":   timestamp.isoformat(),
         "open_price":  open_,
         "high_price":  high,
         "low_price":   low,
