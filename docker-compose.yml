@@ -41,3 +41,83 @@ services:
       - "5050:80"
     depends_on:
       - postgres
+
+  flink:
+    build:
+      context: .
+      dockerfile: app/flink_jobs/Dockerfile
+    container_name: tradingmaster-flink
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      TIMESCALE_JDBC_URL: jdbc:postgresql://postgres:5432/tradingmaster
+      TIMESCALE_USER: user
+      TIMESCALE_PASS: mysecretpassword
+      OTEL_ENABLED: "true"
+      FLINK_METRICS_PROMETHEUS_PORT: "9250-9260"
+    ports:
+      - "9250:9250"   # Flink's own Prometheus metrics reporter
+    depends_on:
+      - kafka
+      - postgres
+
+  # ── Stage 2: Prometheus + Grafana ────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    container_name: tradingmaster-prometheus
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # lets Prometheus scrape the host-run FastAPI app
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: tradingmaster-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "true"     # local-dev convenience only
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+
+  # ── Stage 3: Jaeger ───────────────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.60
+    container_name: tradingmaster-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"   # UI
+      - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+
+  # ── Stage 4: Loki + Promtail ──────────────────────────────────────────────────
+  loki:
+    image: grafana/loki:3.2.1
+    container_name: tradingmaster-loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+
+  promtail:
+    image: grafana/promtail:3.2.1
+    container_name: tradingmaster-promtail
+    volumes:
+      - ./observability/promtail/promtail-config.yml:/etc/promtail/config.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+
+volumes:
+  prometheus_data:
+  grafana_data:

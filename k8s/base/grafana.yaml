@@ -1,0 +1,128 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: tradingmaster
+data:
+  datasource.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus-service:9090
+        isDefault: true
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki-service:3100
+        jsonData:
+          derivedFields:
+            - datasourceUid: jaeger
+              matcherRegex: "trace_id\":\"(\\w+)\""
+              name: TraceID
+              url: "$${__value.raw}"
+      - name: Jaeger
+        type: jaeger
+        access: proxy
+        url: http://jaeger-service:16686
+        uid: jaeger
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: tradingmaster
+data:
+  dashboards.yml: |
+    apiVersion: 1
+    providers:
+      - name: TradingMaster
+        type: file
+        updateIntervalSeconds: 30
+        options:
+          path: /var/lib/grafana/dashboards
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards
+  namespace: tradingmaster
+data:
+  tradingmaster-overview.json: |
+    {"title":"TradingMaster Overview","uid":"tradingmaster-overview","schemaVersion":39,"version":1,"refresh":"10s","panels":[]}
+  # NOTE: keep this ConfigMap in sync with observability/grafana/dashboards/tradingmaster-overview.json
+  # (the compose stack mounts that file directly; k8s carries a copy here since
+  # ConfigMaps can't reference a host file).
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: tradingmaster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+        - name: grafana
+          image: grafana/grafana:11.3.0
+          ports:
+            - containerPort: 3000
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tradingmaster-secrets
+                  key: GRAFANA_ADMIN_PASSWORD
+          volumeMounts:
+            - name: datasources
+              mountPath: /etc/grafana/provisioning/datasources
+            - name: dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards
+            - name: dashboards
+              mountPath: /var/lib/grafana/dashboards
+            - name: data
+              mountPath: /var/lib/grafana
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: datasources
+          configMap:
+            name: grafana-datasources
+        - name: dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: dashboards
+          configMap:
+            name: grafana-dashboards
+        - name: data
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: tradingmaster
+spec:
+  selector:
+    app: grafana
+  ports:
+    - port: 3000
+      targetPort: 3000
+  type: ClusterIP         # overridden per environment

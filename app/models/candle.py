@@ -14,6 +14,11 @@ class Candle(Base):
     low_price = Column(Float,  nullable=False)
     close_price = Column(Float,  nullable=False)
     volume = Column(Float,  nullable=False)
+    # 32-hex-char W3C trace-id extracted from the producing Kafka message's
+    # traceparent header by the Flink job. NULL when the header is missing
+    # (e.g. rows produced before tracing was added, or OTEL_ENABLED=false).
+    # Correlates a persisted row back to its Jaeger trace — see README.
+    trace_id = Column(String(32), nullable=True)
 
     __table_args__ = (
         Index("ix_candles_exchange_ticker_timestamp", "exchange", "ticker", "timestamp"),

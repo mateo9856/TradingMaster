@@ -21,6 +21,13 @@ spec:
           envFrom:
             - secretRef:
                 name: tradingmaster-secrets
+          env:
+            - name: OTEL_ENABLED
+              value: "true"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://jaeger-service:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "tradingmaster-api"
           readinessProbe:
             httpGet:
               path: /health

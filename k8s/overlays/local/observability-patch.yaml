@@ -1,0 +1,55 @@
+# Patch — Grafana reachable via minikube service (NodePort), reduced resources
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: tradingmaster
+spec:
+  type: NodePort
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-service
+  namespace: tradingmaster
+spec:
+  type: NodePort
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: tradingmaster
+spec:
+  template:
+    spec:
+      containers:
+        - name: prometheus
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: tradingmaster
+spec:
+  template:
+    spec:
+      containers:
+        - name: loki
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"

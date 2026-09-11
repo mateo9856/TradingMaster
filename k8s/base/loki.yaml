@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: tradingmaster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loki
+  template:
+    metadata:
+      labels:
+        app: loki
+    spec:
+      containers:
+        - name: loki
+          image: grafana/loki:3.2.1
+          args: ["-config.file=/etc/loki/local-config.yaml"]
+          ports:
+            - containerPort: 3100
+          volumeMounts:
+            - name: data
+              mountPath: /loki
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: data
+          emptyDir: {}   # overridden with a PVC + retention config in the prod overlay
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loki-service
+  namespace: tradingmaster
+spec:
+  selector:
+    app: loki
+  ports:
+    - port: 3100
+      targetPort: 3100
+  type: ClusterIP

@@ -146,6 +146,25 @@ For a job running inside the Compose network, set `TIMESCALE_JDBC_URL` to `jdbc:
 
 The current job consumes six hard-coded topics for the default exchanges and symbols and writes records through a batched JDBC sink with retries.
 
+Since `env_flink` is a separate virtualenv from `env/` (see Environments), also install the two lightweight packages the job's structured logging and trace-id extraction rely on:
+
+```bash
+source env_flink/bin/activate
+pip install python-json-logger opentelemetry-api
+```
+
+If they aren't importable, the job falls back to plain-text logging rather than failing — see `app/flink_jobs/candle_builder.py`'s import guard.
+
+## Observability
+
+```bash
+docker compose up -d prometheus grafana jaeger loki promtail
+```
+
+- **Metrics**: Prometheus at `http://localhost:9090` scrapes `/metrics` on the FastAPI app (`prometheus-client`, see `app/metrics.py`) and Flink's own JVM-side Prometheus reporter on port 9250. Grafana at `http://localhost:3000` (`admin`/`admin` locally) auto-provisions both as datasources plus a starter "TradingMaster Overview" dashboard.
+- **Tracing**: the FastAPI app and Kafka producer export spans via OpenTelemetry OTLP to Jaeger at `http://localhost:16686`. The Flink job cannot hold per-record spans (it runs Table API/SQL with no Python callback in the hot path) — instead it extracts the W3C `traceparent` header the producer attaches to each Kafka message and writes the trace id into `candles.trace_id`, so a persisted row can be correlated back to its producing trace with `SELECT * FROM candles WHERE trace_id = '<id>'`.
+- **Logs**: every Python entrypoint (`app/main.py`, `app/producer_runner.py`, `app/flink_jobs/candle_builder.py`) emits structured JSON logs (`app/logging_config.py`), tagged with `trace_id`/`span_id` when an OTel span is active. Promtail ships them to Loki, browsable from Grafana Explore; a `trace_id` field in a log line links out to the matching Jaeger trace.
+
 ## Testing
 
 ```bash
@@ -162,4 +181,6 @@ Tests mock Kafka and exchange connections. API tests use temporary SQLite and do
 - The Flink topic list is hard-coded in `app/flink_jobs/candle_builder.py`.
 - Running `app.producer_runner` alongside the API can create duplicate exchange streams.
 - Database creation happens at startup; Alembic is installed but migrations are not configured.
+- `candles.trace_id` (added for Jaeger correlation) only appears via `Base.metadata.create_all`, which creates missing tables but never alters existing ones — an existing local `candles` table needs a manual `ALTER TABLE candles ADD COLUMN trace_id VARCHAR(32)`, or drop the dev volume and let it rebuild.
+- Jaeger and Loki run with in-memory/ephemeral storage in this compose/k8s setup — traces and logs don't survive a restart. Fine for local dev; production needs real storage backends (Elasticsearch/Cassandra for Jaeger, a persistent volume + retention config for Loki), not implemented here.
 - Keep `.env`, credentials, passwords, and generated database files out of version control.

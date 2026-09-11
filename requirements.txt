@@ -24,6 +24,15 @@ orjson                     # faster JSON (ccxt recommended for WS throughput)
 pandas                     # DataFrame for Parquet export
 pyarrow                    # Parquet engine
 
+# ── Observability ──────────────────────────────────────────────────────────────
+prometheus-client                          # /metrics endpoint + custom counters/gauges
+python-json-logger                         # structured JSON logs for Loki
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp-proto-grpc     # spans → Jaeger (OTLP/gRPC)
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-sqlalchemy
+
 # ── PyFlink — install SEPARATELY, see INSTALL.md ─────────────────────────────
 # Do NOT include apache-flink here — it requires Java 11+ to be installed first
 # and must be pinned to match your Python version exactly.

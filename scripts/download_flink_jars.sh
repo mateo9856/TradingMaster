@@ -35,6 +35,11 @@ echo "→ postgresql-42.7.3..."
 curl -L -o "$JARS_DIR/postgresql-42.7.3.jar" \
   "https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.3/postgresql-42.7.3.jar"
 
+# Prometheus metrics reporter — exposes Flink's own JVM-side metrics for scraping
+echo "→ flink-metrics-prometheus-2.3.0..."
+curl -L -o "$JARS_DIR/flink-metrics-prometheus-2.3.0.jar" \
+  "$BASE/flink-metrics-prometheus/2.3.0/flink-metrics-prometheus-2.3.0.jar"
+
 echo ""
 echo "Verifying JARs..."
 ALL_OK=true

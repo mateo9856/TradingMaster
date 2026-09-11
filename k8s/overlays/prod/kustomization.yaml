@@ -11,6 +11,7 @@ resources:
 
 patches:
   - path: fastapi-patch.yaml
+  - path: observability-patch.yaml
 
 # Point to your real container registry in production
 # e.g. Docker Hub, AWS ECR, Google GCR

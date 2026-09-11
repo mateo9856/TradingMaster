@@ -28,6 +28,13 @@ spec:
               value: "user"
             - name: TIMESCALE_PASS
               value: "mysecretpassword"
+            - name: OTEL_ENABLED
+              value: "true"
+            - name: FLINK_METRICS_PROMETHEUS_PORT
+              value: "9250-9260"
+          ports:
+            - containerPort: 9250
+              name: metrics
           resources:
             requests:
               cpu: "200m"
@@ -35,3 +42,18 @@ spec:
             limits:
               cpu: "1000m"
               memory: "1Gi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: flink-candle-builder-service
+  namespace: tradingmaster
+spec:
+  selector:
+    app: flink-candle-builder
+  ports:
+    - name: metrics
+      port: 9250
+      targetPort: 9250
+  type: ClusterIP

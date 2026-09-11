@@ -1,0 +1,16 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  # FastAPI runs on the host (uvicorn --reload), not as a compose service —
+  # scrape it via the Docker-provided host gateway (see prometheus's
+  # extra_hosts entry in docker-compose.yml). If you containerize the API
+  # later, switch this target to the compose service name + port 8000.
+  - job_name: fastapi
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8000"]
+
+  - job_name: flink
+    static_configs:
+      - targets: ["tradingmaster-flink:9250"]

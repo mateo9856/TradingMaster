@@ -12,6 +12,12 @@ Fix:
   so they literally see the same in-memory SQLite database.
 """
 
+import os
+
+# Must be set before any `app.*` module is imported (env vars are read once,
+# at app.config import time) — keeps tests from dialing a real OTLP endpoint.
+os.environ.setdefault("OTEL_ENABLED", "false")
+
 import pytest_asyncio
 from datetime import datetime
 from httpx import AsyncClient, ASGITransport

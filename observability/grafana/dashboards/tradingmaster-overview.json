@@ -1,0 +1,71 @@
+{
+  "title": "TradingMaster Overview",
+  "uid": "tradingmaster-overview",
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "HTTP request rate",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "sum(rate(http_requests_total[5m])) by (path)", "legendFormat": "{{path}}" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "HTTP request duration (p95)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, path))", "legendFormat": "{{path}}" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Kafka messages produced (rate by exchange)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "sum(rate(kafka_messages_produced_total[5m])) by (exchange)", "legendFormat": "{{exchange}}" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Kafka reconnects",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "sum(rate(kafka_reconnects_total[15m])) by (exchange)", "legendFormat": "{{exchange}}" }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Active WebSocket connections",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "sum(websocket_active_connections)" }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "EOD job duration",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(eod_job_duration_seconds_bucket[1d])) by (le))" }
+      ]
+    }
+  ]
+}

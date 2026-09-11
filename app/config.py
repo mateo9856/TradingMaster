@@ -20,3 +20,14 @@ EXCHANGE_CREDENTIALS: dict = {
     "kraken":   {"apiKey": os.getenv("KRAKEN_API_KEY", ""),   "secret": os.getenv("KRAKEN_API_SECRET", "")},
     "coinbase": {"apiKey": os.getenv("COINBASE_API_KEY", ""), "secret": os.getenv("COINBASE_API_SECRET", "")},
 }
+
+# Observability — metrics
+PROMETHEUS_METRICS_ENABLED: bool = os.getenv("PROMETHEUS_METRICS_ENABLED", "true").lower() == "true"
+
+# Observability — tracing
+OTEL_ENABLED: bool = os.getenv("OTEL_ENABLED", "true").lower() == "true"
+OTEL_EXPORTER_OTLP_ENDPOINT: str = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+OTEL_SERVICE_NAME: str = os.getenv("OTEL_SERVICE_NAME", "tradingmaster-api")
+
+# Observability — logging
+LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

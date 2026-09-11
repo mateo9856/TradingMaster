@@ -23,12 +23,14 @@ Run manually:
 """
 
 import logging
+import time
 from datetime import datetime, timedelta, date
 from pathlib import Path
 
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.metrics import eod_job_duration_seconds, eod_job_runs_total
 from app.models.candle import Candle
 from app.models.candle_history import CandleHistory
 from app.models.database import AsyncSessionLocal
@@ -158,10 +160,18 @@ async def run_eod_job(target_date: date | None = None) -> None:
 
     logger.info(f"Starting EOD archive job for {target_date}...")
 
-    async with AsyncSessionLocal() as db:
-        archived = await _archive_date(db, target_date)
-        if archived > 0:
-            await _export_parquet(db, target_date)
-        await _cleanup_old_candles(db)
+    start = time.perf_counter()
+    try:
+        async with AsyncSessionLocal() as db:
+            archived = await _archive_date(db, target_date)
+            if archived > 0:
+                await _export_parquet(db, target_date)
+            await _cleanup_old_candles(db)
+        eod_job_runs_total.labels(status="success").inc()
+    except Exception:
+        eod_job_runs_total.labels(status="failure").inc()
+        raise
+    finally:
+        eod_job_duration_seconds.observe(time.perf_counter() - start)
 
     logger.info(f"EOD archive job complete for {target_date}")

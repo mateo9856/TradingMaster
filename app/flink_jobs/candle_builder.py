@@ -21,15 +21,23 @@ import os
 import logging
 from pathlib import Path
 
-from pyflink.table import EnvironmentSettings, TableEnvironment
+from pyflink.table import DataTypes, EnvironmentSettings, TableEnvironment
+from pyflink.table.udf import ScalarFunction, udf
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-)
+try:
+    from app.logging_config import setup_json_logging
+    setup_json_logging(service="tradingmaster-flink")
+except ImportError:
+    # app/ (and its deps) aren't guaranteed to be importable from env_flink —
+    # fall back to plain logging rather than fail the job over structured logs.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    )
 logger = logging.getLogger(__name__)
 
 # ── Config from environment ───────────────────────────────────────────────────
+# env_flink doesn't load .env (see CLAUDE.md) — read directly from os.environ.
 KAFKA_SERVERS   = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 TIMESCALE_URL   = os.getenv(
     "TIMESCALE_JDBC_URL",
@@ -37,6 +45,35 @@ TIMESCALE_URL   = os.getenv(
 )
 TIMESCALE_USER  = os.getenv("TIMESCALE_USER", "user")
 TIMESCALE_PASS  = os.getenv("TIMESCALE_PASS", "mysecretpassword")
+
+# Tracing: Flink never exports OTel spans itself (the Table API's SQL execution
+# has no per-record Python hook to keep an exporter alive in). Instead, when
+# enabled, it extracts the W3C traceparent header CCXT→Kafka producer attaches
+# and forwards the trace-id as a `trace_id` column on the persisted row, so a
+# row can be correlated back to its Jaeger trace via `candles.trace_id`.
+OTEL_ENABLED = os.getenv("OTEL_ENABLED", "false").lower() == "true"
+
+# Prometheus: Flink's own JVM-side metrics reporter, independent of the
+# Python `prometheus_client` registry used by the FastAPI app.
+METRICS_PROM_PORT = os.getenv("FLINK_METRICS_PROMETHEUS_PORT", "9250-9260")
+
+
+class ExtractTraceId(ScalarFunction):
+    """
+    Parses the 32-hex-char trace-id out of a W3C traceparent header value
+    (format: "00-<32 hex trace-id>-<16 hex span-id>-<flags>"). Pure string
+    slicing — no OTel SDK, no exporter, no network calls — this runs inside
+    Flink's distributed Python UDF worker processes, where keeping a live
+    OTel exporter/TracerProvider per worker would be operationally fragile.
+    """
+
+    def eval(self, traceparent):
+        if traceparent is None:
+            return None
+        parts = traceparent.split("-")
+        if len(parts) != 4 or len(parts[1]) != 32:
+            return None
+        return parts[1]
 
 # Kafka topics to consume
 # Flink's Kafka SQL connector expects a semicolon-separated topic list.
@@ -57,6 +94,7 @@ JARS = [
     JARS_DIR / "flink-connector-jdbc-core-4.0.0-2.0.jar",   # Flink 2.x: JDBC split by DB
     JARS_DIR / "flink-connector-jdbc-postgres-4.0.0-2.0.jar",
     JARS_DIR / "postgresql-42.7.3.jar",
+    JARS_DIR / "flink-metrics-prometheus-2.3.0.jar",
 ]
 
 
@@ -85,10 +123,25 @@ def main():
     t_env.get_config().set("pipeline.jars", jar_config)
     t_env.get_config().set("parallelism.default", "2")
 
+    # Flink's own JVM-side metrics reporter — separate from prometheus_client,
+    # scraped by Prometheus as its own `flink` target.
+    t_env.get_config().set("metrics.reporters", "prom")
+    t_env.get_config().set(
+        "metrics.reporter.prom.factory.class",
+        "org.apache.flink.metrics.prometheus.PrometheusReporterFactory",
+    )
+    t_env.get_config().set("metrics.reporter.prom.port", METRICS_PROM_PORT)
+
     logger.info(f"Kafka topics: {KAFKA_TOPICS}")
     logger.info(f"PostgreSQL:   {TIMESCALE_URL}")
+    logger.info(f"OTel trace-id correlation: {'enabled' if OTEL_ENABLED else 'disabled'}")
+
+    if OTEL_ENABLED:
+        t_env.create_temporary_function("extract_trace_id", udf(ExtractTraceId(), result_type=DataTypes.STRING()))
 
     # ── Kafka Source Table ────────────────────────────────────────────────────
+    # `headers` is a Kafka connector metadata column — lets SQL read the
+    # traceparent header the producer attaches, with no DataStream API needed.
     t_env.execute_sql(f"""
         CREATE TABLE kafka_candles (
             exchange    STRING,
@@ -100,6 +153,7 @@ def main():
             low_price   DOUBLE,
             close_price DOUBLE,
             volume      DOUBLE,
+            headers     MAP<STRING, BYTES> METADATA VIRTUAL,
             proc_time   AS PROCTIME()
         ) WITH (
             'connector'                     = 'kafka',
@@ -124,7 +178,8 @@ def main():
             high_price  DOUBLE,
             low_price   DOUBLE,
             close_price DOUBLE,
-            volume      DOUBLE
+            volume      DOUBLE,
+            trace_id    STRING
         ) WITH (
             'connector'  = 'jdbc',
             'url'        = '{TIMESCALE_URL}',
@@ -139,7 +194,10 @@ def main():
 
     # ── Stream: Kafka → PostgreSQL ────────────────────────────────────────────
     logger.info("Starting stream: Kafka → PostgreSQL...")
-    t_env.execute_sql("""
+    trace_id_expr = (
+        "extract_trace_id(CAST(headers['traceparent'] AS STRING))" if OTEL_ENABLED else "CAST(NULL AS STRING)"
+    )
+    t_env.execute_sql(f"""
         INSERT INTO postgres_candles
         SELECT
             exchange,
@@ -150,7 +208,8 @@ def main():
             high_price,
             low_price,
             close_price,
-            volume
+            volume,
+            {trace_id_expr}
         FROM kafka_candles
     """).wait()
 

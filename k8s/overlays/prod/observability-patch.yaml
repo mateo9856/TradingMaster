@@ -1,0 +1,85 @@
+# Patch — Grafana/Jaeger reachable externally, real resources, no anonymous auth.
+# Prometheus/Loki still use emptyDir here (inherited from base) — swap in a
+# PVC + retention config before relying on this in production; placeholders,
+# same as this overlay's secrets.yaml.
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana-service
+  namespace: tradingmaster
+spec:
+  type: LoadBalancer
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-service
+  namespace: tradingmaster
+spec:
+  type: LoadBalancer
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: tradingmaster
+spec:
+  template:
+    spec:
+      containers:
+        - name: grafana
+          env:
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tradingmaster-secrets
+                  key: GRAFANA_ADMIN_PASSWORD
+            - name: GF_AUTH_ANONYMOUS_ENABLED
+              value: "false"
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: tradingmaster
+spec:
+  template:
+    spec:
+      containers:
+        - name: prometheus
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loki
+  namespace: tradingmaster
+spec:
+  template:
+    spec:
+      containers:
+        - name: loki
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"

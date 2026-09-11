@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import KAFKA_BOOTSTRAP_SERVERS
+from app.metrics import websocket_active_connections
 from app.models.candle import Candle
 from app.models.database import get_db
 from app.schemas import ApiResponse, CandleCreate, CandleResponse
@@ -115,6 +116,7 @@ async def live_candles(
     Each message is a JSON object matching CandleResponse schema.
     """
     await websocket.accept()
+    websocket_active_connections.labels(endpoint="live_candles").inc()
     ticker_normalized = ticker.upper().replace("/", "")
  
     # Build list of Kafka topics to subscribe to
@@ -150,4 +152,5 @@ async def live_candles(
         await websocket.close(code=1011)
  
     finally:
+        websocket_active_connections.labels(endpoint="live_candles").dec()
         await consumer.stop()

@@ -9,3 +9,8 @@ resources:
   - kafka.yaml
   - fastapi.yaml
   - flink.yaml
+  - prometheus.yaml
+  - grafana.yaml
+  - jaeger.yaml
+  - loki.yaml
+  - promtail.yaml

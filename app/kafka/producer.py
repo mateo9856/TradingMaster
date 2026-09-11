@@ -23,8 +23,10 @@ from aiokafka.errors import TopicAlreadyExistsError
 from sqlalchemy import select
 
 from app.config import KAFKA_BOOTSTRAP_SERVERS, EXCHANGE_CREDENTIALS
+from app.metrics import kafka_messages_produced_total, kafka_reconnects_total
 from app.models.database import AsyncSessionLocal
 from app.models.exchange import Exchange, Symbol
+from app.tracing import inject_traceparent_headers, tracer
 
 logger = logging.getLogger(__name__)
 
@@ -117,7 +119,19 @@ async def _send_candle(
         "volume":      volume,
     }
     topic = _topic_name(exchange_id, symbol)
-    await producer.send(topic, value=json.dumps(payload).encode("utf-8"))
+    with tracer.start_as_current_span(
+        "kafka.produce",
+        attributes={
+            "messaging.system": "kafka",
+            "messaging.destination": topic,
+            "exchange": exchange_id,
+            "ticker": symbol,
+            "interval": interval,
+        },
+    ):
+        headers = inject_traceparent_headers()
+        await producer.send(topic, value=json.dumps(payload).encode("utf-8"), headers=headers)
+    kafka_messages_produced_total.labels(exchange=exchange_id, ticker=symbol, interval=interval).inc()
     logger.debug(f"[{exchange_id}] → {topic} close={close}")
 
 
@@ -208,6 +222,7 @@ async def _stream_exchange(exc_config: dict, producer: AIOKafkaProducer) -> None
                 ])
 
         except Exception as e:
+            kafka_reconnects_total.labels(exchange=exchange_id).inc()
             logger.warning(f"[{exchange_id}] Stream error: {e} — reconnecting in 5s")
             await asyncio.sleep(5)
         finally:

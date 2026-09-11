@@ -1,21 +1,28 @@
 import asyncio
 import logging
+import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+from prometheus_client import make_asgi_app
 
+import app.config as config
 import app.models  # noqa: F401 — registers all ORM models with Base
+from app.logging_config import setup_json_logging
+from app.metrics import http_request_duration_seconds, http_requests_total
 from app.models.database import engine, Base, AsyncSessionLocal
 from app.models.seeder import seed_exchanges
 from app.kafka.producer import run_producer
 from app.jobs.eod_archive import run_eod_job
 from app.routers import exchanges, history, market
+from app.tracing import setup_tracing
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-)
+setup_json_logging(service="tradingmaster-api", level=getattr(logging, config.LOG_LEVEL, logging.INFO))
 logger = logging.getLogger(__name__)
+
+setup_tracing(config.OTEL_SERVICE_NAME, config.OTEL_EXPORTER_OTLP_ENDPOINT, enabled=config.OTEL_ENABLED)
 
 
 async def _start_eod_scheduler() -> None:
@@ -86,9 +93,27 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+FastAPIInstrumentor.instrument_app(app)
+SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    start = time.perf_counter()
+    response = await call_next(request)
+    duration = time.perf_counter() - start
+    path = request.url.path
+    http_requests_total.labels(method=request.method, path=path, status_code=response.status_code).inc()
+    http_request_duration_seconds.labels(method=request.method, path=path).observe(duration)
+    return response
+
+
 app.include_router(market.router)
 app.include_router(exchanges.router)
 app.include_router(history.router)
+
+if config.PROMETHEUS_METRICS_ENABLED:
+    app.mount("/metrics", make_asgi_app())
 
 
 @app.get("/health", tags=["health"], summary="Liveness check")
