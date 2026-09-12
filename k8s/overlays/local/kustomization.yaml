@@ -14,6 +14,7 @@ resources:
 patches:
   - path: fastapi-patch.yaml
   - path: observability-patch.yaml
+  - path: eod-patch.yaml
 
 # Tag all images with local suffix so they're clearly local builds
 images:

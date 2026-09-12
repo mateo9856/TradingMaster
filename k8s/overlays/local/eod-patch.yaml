@@ -1,0 +1,10 @@
+# Override the base schedule (23:30 UTC) for local testing — running once a
+# day makes it impractical to actually see the CronJob fire during dev.
+# Real environments should keep (or explicitly re-set) the base's 23:30 UTC.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: eod-archive
+  namespace: tradingmaster
+spec:
+  schedule: "*/10 * * * *"   # every 10 minutes, local only

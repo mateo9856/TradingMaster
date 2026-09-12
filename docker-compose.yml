@@ -17,10 +17,15 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://kafka:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      # Two listeners: PLAINTEXT (advertised as localhost) for host-run processes
+      # like `uvicorn app.main:app` or `python -m app.producer_runner`, and
+      # INTERNAL (advertised as the container's own DNS name) for other compose
+      # services on the Docker network — e.g. the `flink` container, which
+      # can't reach "localhost:9092" (that's itself, not the broker).
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,INTERNAL://0.0.0.0:29092,CONTROLLER://kafka:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -48,7 +53,7 @@ services:
       dockerfile: app/flink_jobs/Dockerfile
     container_name: tradingmaster-flink
     environment:
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092   # INTERNAL listener — see kafka service
       TIMESCALE_JDBC_URL: jdbc:postgresql://postgres:5432/tradingmaster
       TIMESCALE_USER: user
       TIMESCALE_PASS: mysecretpassword

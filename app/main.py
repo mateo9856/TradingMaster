@@ -15,7 +15,6 @@ from app.metrics import http_request_duration_seconds, http_requests_total
 from app.models.database import engine, Base, AsyncSessionLocal
 from app.models.seeder import seed_exchanges
 from app.kafka.producer import run_producer
-from app.jobs.eod_archive import run_eod_job
 from app.routers import exchanges, history, market
 from app.tracing import setup_tracing
 
@@ -23,30 +22,6 @@ setup_json_logging(service="tradingmaster-api", level=getattr(logging, config.LO
 logger = logging.getLogger(__name__)
 
 setup_tracing(config.OTEL_SERVICE_NAME, config.OTEL_EXPORTER_OTLP_ENDPOINT, enabled=config.OTEL_ENABLED)
-
-
-async def _start_eod_scheduler() -> None:
-    """
-    Runs the EOD archive job every day at midnight UTC.
-    Implemented as a simple async loop — no extra dependencies needed.
-    """
-    from datetime import datetime, timezone, timedelta
-
-    while True:
-        now = datetime.now(timezone.utc)
-        # Next midnight UTC
-        next_midnight = (now + timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        wait_seconds = (next_midnight - now).total_seconds()
-        logger.info(f"EOD job scheduled in {wait_seconds / 3600:.1f}h (next midnight UTC)")
-
-        await asyncio.sleep(wait_seconds)
-
-        try:
-            await run_eod_job()
-        except Exception as e:
-            logger.error(f"EOD job failed: {e}")
 
 
 @asynccontextmanager
@@ -65,18 +40,18 @@ async def lifespan(application: FastAPI):
     logger.info("Starting Kafka producer (exchange streams)...")
     producer_task = asyncio.create_task(run_producer())
 
-    # Start EOD scheduler
-    logger.info("Starting EOD archive scheduler...")
-    eod_task = asyncio.create_task(_start_eod_scheduler())
+    # The EOD archive job runs as its own process (app/eod_runner.py, driven
+    # by cron / a Kubernetes CronJob) rather than an in-process scheduler here
+    # — a crashed or redeployed API process should not silently skip a day's
+    # archive run. See app/eod_runner.py and k8s/base/eod-cronjob.yaml.
 
     yield  # API is live
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     logger.info("Shutting down...")
     producer_task.cancel()
-    eod_task.cancel()
     try:
-        await asyncio.gather(producer_task, eod_task, return_exceptions=True)
+        await asyncio.gather(producer_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
 

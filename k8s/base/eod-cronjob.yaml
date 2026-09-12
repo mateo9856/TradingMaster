@@ -1,0 +1,49 @@
+# Runs the EOD archive job once a day, independent of the FastAPI Deployment's
+# lifecycle — a crashed/redeployed API pod should never silently skip a day's
+# archive run. Reuses the same image as fastapi.yaml (it already has the full
+# app/ package + dependencies installed); only the command differs.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: eod-archive
+  namespace: tradingmaster
+spec:
+  # 23:30 UTC — 30 minutes before the day rolls over, so the run completes
+  # (and, if it fails, backoffLimit retries have a chance to complete too)
+  # before RETENTION_DAYS-based cleanup math ticks over to the next day.
+  # With no target_date arg, app/eod_runner.py still archives *yesterday*
+  # (UTC), so running slightly before midnight rather than slightly after it
+  # doesn't change which day gets archived — it just leaves margin.
+  # Override per environment with a `spec.schedule` patch (see
+  # k8s/overlays/local/eod-patch.yaml for an example).
+  schedule: "30 23 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: eod-archive
+              image: tradingmaster-api:latest
+              command: ["python", "-m", "app.eod_runner"]
+              envFrom:
+                - secretRef:
+                    name: tradingmaster-secrets
+              env:
+                - name: OTEL_ENABLED
+                  value: "true"
+                - name: OTEL_EXPORTER_OTLP_ENDPOINT
+                  value: "http://jaeger-service:4317"
+                - name: OTEL_SERVICE_NAME
+                  value: "tradingmaster-eod"
+              resources:
+                requests:
+                  cpu: "100m"
+                  memory: "128Mi"
+                limits:
+                  cpu: "500m"
+                  memory: "512Mi"

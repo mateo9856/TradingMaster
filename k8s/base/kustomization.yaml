@@ -9,6 +9,7 @@ resources:
   - kafka.yaml
   - fastapi.yaml
   - flink.yaml
+  - eod-cronjob.yaml
   - prometheus.yaml
   - grafana.yaml
   - jaeger.yaml

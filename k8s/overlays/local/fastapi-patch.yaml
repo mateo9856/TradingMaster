@@ -49,3 +49,19 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
+
+---
+# Patch 4 — eod-archive CronJob also uses the local image
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: eod-archive
+  namespace: tradingmaster
+spec:
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: eod-archive
+              imagePullPolicy: Never

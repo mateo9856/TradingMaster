@@ -30,6 +30,13 @@ echo "→ flink-connector-jdbc-core-4.0.0-2.0..."
 curl -L -o "$JARS_DIR/flink-connector-jdbc-core-4.0.0-2.0.jar" \
   "$BASE/flink-connector-jdbc-core/4.0.0-2.0/flink-connector-jdbc-core-4.0.0-2.0.jar"
 
+# JDBC PostgreSQL dialect — without this, Flink falls back to only the Derby
+# factory (see CLAUDE.md's known gaps). This was previously missing from this
+# script even though candle_builder.py requires it.
+echo "→ flink-connector-jdbc-postgres-4.0.0-2.0..."
+curl -L -o "$JARS_DIR/flink-connector-jdbc-postgres-4.0.0-2.0.jar" \
+  "$BASE/flink-connector-jdbc-postgres/4.0.0-2.0/flink-connector-jdbc-postgres-4.0.0-2.0.jar"
+
 # PostgreSQL JDBC driver
 echo "→ postgresql-42.7.3..."
 curl -L -o "$JARS_DIR/postgresql-42.7.3.jar" \
