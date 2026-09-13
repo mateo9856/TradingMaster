@@ -65,7 +65,11 @@ KRAKEN_API_KEY=
 KRAKEN_API_SECRET=
 COINBASE_API_KEY=
 COINBASE_API_SECRET=
+AUTH_SECRET=
+AUTH_TOKEN_LIFETIME_SECONDS=3600
 ```
+
+`AUTH_SECRET` signs JWT access tokens (FastAPI Users) — set a real random value in every non-dev deployment; the built-in default is dev-only.
 
 The API creates the `candles` table on startup. The Flink job additionally reads `TIMESCALE_JDBC_URL`, `TIMESCALE_USER`, and `TIMESCALE_PASS`.
 These variables must be exported in the shell running the job; activating `env_flink` does not load `.env` automatically. When the job runs on the host with the included Docker Compose setup, use `jdbc:postgresql://localhost:5432/tradingmaster`. When it runs in a Compose container, use `jdbc:postgresql://postgres:5432/tradingmaster`.
@@ -90,6 +94,32 @@ The API starts the Kafka producer automatically. To run only the producer separa
 python -m app.producer_runner
 ```
 
+## Auth
+
+User accounts and JWT bearer auth are provided by [FastAPI Users](https://fastapi-users.github.io/fastapi-users/) (`app/auth/`), backed by a `users` table via `fastapi-users-db-sqlalchemy`. All read (`GET`) endpoints and the market WebSocket stream remain public; every mutating (`POST`/`PUT`) endpoint under `/api/v1/market`, `/api/v1/exchanges`, and the manual history-archive trigger requires a valid bearer token from an active user.
+
+Register and log in:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"trader@example.com","password":"supersecret123"}'
+
+curl -X POST http://localhost:8000/api/v1/auth/jwt/login \
+  -d 'username=trader@example.com&password=supersecret123'
+```
+
+The login response's `access_token` is sent as `Authorization: Bearer <token>` on protected requests:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/exchanges \
+  -H 'Authorization: Bearer <token>' \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"coinbase","method":"trades"}'
+```
+
+Other auth routes: `POST /api/v1/auth/jwt/logout`, `POST /api/v1/auth/forgot-password` / `POST /api/v1/auth/reset-password`, `POST /api/v1/auth/request-verify-token` / `POST /api/v1/auth/verify`, and `GET`/`PATCH /api/v1/users/me` (self-service profile). `/docs`'s Swagger UI has a built-in **Authorize** button that accepts the bearer token directly.
+
 ## API
 
 ### Get candles
@@ -104,11 +134,12 @@ curl 'http://localhost:8000/api/v1/market/candles/BTC%2FUSDT?exchange=binance&in
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/market/candles \
+  -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
   -d '{"exchange":"binance","ticker":"BTC/USDT","interval":"1m","open_price":65000,"high_price":65300,"low_price":64850,"close_price":65200,"volume":15.4}'
 ```
 
-`POST /api/v1/market/candles` supports testing, manual insertion, and backfilling. The timestamp is optional and defaults to the current UTC time. Prices and volume must be non-negative.
+`POST /api/v1/market/candles` supports testing, manual insertion, and backfilling (requires an authenticated user — see [Auth](#auth)). The timestamp is optional and defaults to the current UTC time. Prices and volume must be non-negative.
 
 ### Stream live candles
 

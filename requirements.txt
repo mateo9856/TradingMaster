@@ -1,6 +1,5 @@
 # ── API ───────────────────────────────────────────────────────────────────────
 fastapi>=0.136.0
-scalar-fastapi>=1.0.2
 uvicorn[standard]>=0.34.0
 websockets>=13.0
  
@@ -8,6 +7,9 @@ websockets>=13.0
 sqlalchemy[asyncio]>=2.0
 asyncpg                    # async PostgreSQL/TimescaleDB driver
 alembic                    # schema migrations
+
+# ── Auth ──────────────────────────────────────────────────────────────────────
+fastapi-users[sqlalchemy]>=15.0.0   # user registration/login + JWT auth
  
 # ── Exchange connectivity ─────────────────────────────────────────────────────
 ccxt[pro]                  # WebSocket streams: Binance, Kraken, Coinbase etc.

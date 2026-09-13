@@ -8,10 +8,12 @@ from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisco
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import current_active_user
 from app.config import KAFKA_BOOTSTRAP_SERVERS
 from app.metrics import websocket_active_connections
 from app.models.candle import Candle
 from app.models.database import get_db
+from app.models.user import User
 from app.schemas import ApiResponse, CandleCreate, CandleResponse
 
 logger = logging.getLogger(__name__)
@@ -83,6 +85,7 @@ async def get_candles(
 async def create_candle(
     candle: CandleCreate,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_active_user),
 ):
     """
     Manually insert a candle (useful for testing or backfilling).

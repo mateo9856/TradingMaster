@@ -10,6 +10,7 @@ from prometheus_client import make_asgi_app
 
 import app.config as config
 import app.models  # noqa: F401 — registers all ORM models with Base
+from app.auth import UserCreate, UserRead, UserUpdate, auth_backend, fastapi_users
 from app.logging_config import setup_json_logging
 from app.metrics import http_request_duration_seconds, http_requests_total
 from app.models.database import engine, Base, AsyncSessionLocal
@@ -86,6 +87,32 @@ async def metrics_middleware(request: Request, call_next):
 app.include_router(market.router)
 app.include_router(exchanges.router)
 app.include_router(history.router)
+
+app.include_router(
+    fastapi_users.get_auth_router(auth_backend),
+    prefix="/api/v1/auth/jwt",
+    tags=["auth"],
+)
+app.include_router(
+    fastapi_users.get_register_router(UserRead, UserCreate),
+    prefix="/api/v1/auth",
+    tags=["auth"],
+)
+app.include_router(
+    fastapi_users.get_reset_password_router(),
+    prefix="/api/v1/auth",
+    tags=["auth"],
+)
+app.include_router(
+    fastapi_users.get_verify_router(UserRead),
+    prefix="/api/v1/auth",
+    tags=["auth"],
+)
+app.include_router(
+    fastapi_users.get_users_router(UserRead, UserUpdate),
+    prefix="/api/v1/users",
+    tags=["users"],
+)
 
 if config.PROMETHEUS_METRICS_ENABLED:
     app.mount("/metrics", make_asgi_app())

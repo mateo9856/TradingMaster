@@ -18,16 +18,20 @@ import os
 # at app.config import time) — keeps tests from dialing a real OTLP endpoint.
 os.environ.setdefault("OTEL_ENABLED", "false")
 
+import uuid
+
 import pytest_asyncio
 from datetime import datetime
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from unittest.mock import AsyncMock, patch
 
+from app.auth import current_active_user
 from app.models.database import Base, get_db
 from app.models.candle import Candle as CandleORM
 from app.models.candle_history import CandleHistory
 from app.models.exchange import Exchange, Symbol
+from app.models.user import User
 
 # Use a file-backed SQLite database so committed seed rows remain visible
 # across pytest-asyncio event loops and FastAPI request sessions.
@@ -71,8 +75,48 @@ async def db_session(reset_database) -> AsyncSession:
 
 # ── FastAPI client ────────────────────────────────────────────────────────────
 
+def _fake_active_user() -> User:
+    return User(
+        id=uuid.uuid4(),
+        email="test-user@example.com",
+        hashed_password="not-a-real-hash",
+        is_active=True,
+        is_verified=True,
+        is_superuser=False,
+    )
+
+
 @pytest_asyncio.fixture
 async def client(reset_database) -> AsyncClient:
+    """
+    Authenticated test client — most tests exercise business logic, not auth
+    itself, so `current_active_user` is overridden to always yield a fake
+    active user. Auth-specific behavior (401s, register/login) is covered
+    against `anonymous_client` in tests/test_auth.py.
+    """
+    async def override_get_db():
+        async with TestingSessionLocal() as session:
+            yield session
+
+    with patch("app.main.run_producer", new_callable=AsyncMock) as mock_producer:
+        mock_producer.return_value = None
+
+        from app.main import app
+        app.dependency_overrides[get_db] = override_get_db
+        app.dependency_overrides[current_active_user] = _fake_active_user
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+        ) as ac:
+            yield ac
+
+        app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def anonymous_client(reset_database) -> AsyncClient:
+    """Unauthenticated test client — for exercising real auth behavior."""
     async def override_get_db():
         async with TestingSessionLocal() as session:
             yield session

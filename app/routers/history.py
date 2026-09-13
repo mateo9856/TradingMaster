@@ -14,8 +14,10 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import current_active_user
 from app.models.database import get_db
 from app.models.candle_history import CandleHistory
+from app.models.user import User
 from app.schemas import ApiResponse, CandleHistoryResponse
 
 logger = logging.getLogger(__name__)
@@ -72,7 +74,7 @@ async def get_history(
 
 
 @router.post("/archive/{target_date}", status_code=status.HTTP_202_ACCEPTED)
-async def trigger_archive(target_date: date):
+async def trigger_archive(target_date: date, user: User = Depends(current_active_user)):
     """
     Manually trigger the EOD archive job for a specific date.
     Useful for backfilling missed archives.

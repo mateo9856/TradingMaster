@@ -179,7 +179,8 @@ def main():
             low_price   DOUBLE,
             close_price DOUBLE,
             volume      DOUBLE,
-            trace_id    STRING
+            trace_id    STRING,
+            PRIMARY KEY (exchange, ticker, `timestamp`) NOT ENFORCED
         ) WITH (
             'connector'  = 'jdbc',
             'url'        = '{TIMESCALE_URL}',

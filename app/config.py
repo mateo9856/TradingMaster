@@ -31,3 +31,8 @@ OTEL_SERVICE_NAME: str = os.getenv("OTEL_SERVICE_NAME", "tradingmaster-api")
 
 # Observability — logging
 LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+
+# Auth — JWT signing for FastAPI Users. Override AUTH_SECRET in every real
+# deployment; this default is dev-only and must never be used in production.
+AUTH_SECRET: str = os.getenv("AUTH_SECRET", "dev-insecure-secret-change-me-in-every-real-deployment")
+AUTH_TOKEN_LIFETIME_SECONDS: int = int(os.getenv("AUTH_TOKEN_LIFETIME_SECONDS", "3600"))

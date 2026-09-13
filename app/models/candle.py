@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Float, String, DateTime, Index
+from sqlalchemy import Column, Integer, Float, String, DateTime, Index, UniqueConstraint
 from .database import Base
 
 class Candle(Base):
@@ -21,5 +21,7 @@ class Candle(Base):
     trace_id = Column(String(32), nullable=True)
 
     __table_args__ = (
-        Index("ix_candles_exchange_ticker_timestamp", "exchange", "ticker", "timestamp"),
+        UniqueConstraint(
+            "exchange", "ticker", "timestamp", name="uq_candles_exchange_ticker_timestamp"
+        ),
     )

@@ -15,8 +15,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import current_active_user
 from app.models.database import get_db
 from app.models.exchange import Exchange, Symbol
+from app.models.user import User
 from app.schemas import (
     ApiResponse,
     ExchangeCreate,
@@ -45,7 +47,11 @@ async def list_exchanges(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=ApiResponse[ExchangeResponse], status_code=status.HTTP_201_CREATED)
-async def create_exchange(body: ExchangeCreate, db: AsyncSession = Depends(get_db)):
+async def create_exchange(
+    body: ExchangeCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_active_user),
+):
     existing = await db.execute(select(Exchange).where(Exchange.name == body.name))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail=f"Exchange '{body.name}' already exists")
@@ -58,7 +64,11 @@ async def create_exchange(body: ExchangeCreate, db: AsyncSession = Depends(get_d
 
 
 @router.put("/{exchange_id}/toggle", response_model=ApiResponse[ExchangeResponse])
-async def toggle_exchange(exchange_id: int, db: AsyncSession = Depends(get_db)):
+async def toggle_exchange(
+    exchange_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_active_user),
+):
     result = await db.execute(select(Exchange).where(Exchange.id == exchange_id))
     exchange = result.scalar_one_or_none()
     if not exchange:
@@ -90,7 +100,12 @@ async def list_symbols(exchange_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/{exchange_id}/symbols", response_model=ApiResponse[SymbolResponse], status_code=status.HTTP_201_CREATED)
-async def create_symbol(exchange_id: int, body: SymbolCreate, db: AsyncSession = Depends(get_db)):
+async def create_symbol(
+    exchange_id: int,
+    body: SymbolCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_active_user),
+):
     result = await db.execute(select(Exchange).where(Exchange.id == exchange_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Exchange not found")
@@ -103,7 +118,11 @@ async def create_symbol(exchange_id: int, body: SymbolCreate, db: AsyncSession =
 
 
 @router.put("/symbols/{symbol_id}/toggle", response_model=ApiResponse[SymbolResponse])
-async def toggle_symbol(symbol_id: int, db: AsyncSession = Depends(get_db)):
+async def toggle_symbol(
+    symbol_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(current_active_user),
+):
     result = await db.execute(select(Symbol).where(Symbol.id == symbol_id))
     symbol = result.scalar_one_or_none()
     if not symbol:
