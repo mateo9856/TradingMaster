@@ -59,6 +59,10 @@ services:
       TIMESCALE_PASS: mysecretpassword
       OTEL_ENABLED: "true"
       FLINK_METRICS_PROMETHEUS_PORT: "9250-9260"
+      # Checkpoints commit Kafka offsets — a restarted job resumes from them.
+      FLINK_CHECKPOINT_INTERVAL: "30s"
+      # How often new candle topics (pairs added through the API) are discovered.
+      FLINK_TOPIC_DISCOVERY_INTERVAL: "60s"
     ports:
       - "9250:9250"   # Flink's own Prometheus metrics reporter
     depends_on:

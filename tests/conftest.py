@@ -142,7 +142,10 @@ async def anonymous_client(reset_database) -> AsyncClient:
 async def btc_candle(db_session: AsyncSession) -> CandleORM:
     candle = CandleORM(
         exchange="binance",
-        ticker="BTC/USDT",
+        ticker="BTC/USD",
+        source_ticker="BTC/USDT",
+        quote_currency="USD",
+        fx_rate=1,
         interval="1m",
         timestamp=datetime(2026, 6, 23, 12, 0, 0),
         open_price=65000.0,
@@ -161,25 +164,25 @@ async def btc_candle(db_session: AsyncSession) -> CandleORM:
 async def multi_candles(db_session: AsyncSession) -> list[CandleORM]:
     candles = [
         CandleORM(
-            exchange="binance", ticker="BTC/USDT", interval="1m",
+            exchange="binance", ticker="BTC/USD", source_ticker="BTC/USDT", interval="1m",
             timestamp=datetime(2026, 6, 23, 12, 0, 0),
             open_price=65000.0, high_price=65300.0, low_price=64850.0,
             close_price=65200.0, volume=15.4,
         ),
         CandleORM(
-            exchange="kraken", ticker="BTC/USDT", interval="1m",
+            exchange="kraken", ticker="BTC/USD", source_ticker="BTC/USDT", interval="1m",
             timestamp=datetime(2026, 6, 23, 12, 1, 0),
             open_price=65100.0, high_price=65400.0, low_price=64900.0,
             close_price=65300.0, volume=10.2,
         ),
         CandleORM(
-            exchange="binance", ticker="ETH/USDT", interval="1m",
+            exchange="binance", ticker="ETH/USD", source_ticker="ETH/USDT", interval="1m",
             timestamp=datetime(2026, 6, 23, 12, 0, 0),
             open_price=3500.0, high_price=3550.0, low_price=3490.0,
             close_price=3525.0, volume=88.5,
         ),
         CandleORM(
-            exchange="binance", ticker="BTC/USDT", interval="5m",
+            exchange="binance", ticker="BTC/USD", source_ticker="BTC/USDT", interval="5m",
             timestamp=datetime(2026, 6, 23, 12, 5, 0),
             open_price=65200.0, high_price=65500.0, low_price=65100.0,
             close_price=65400.0, volume=42.1,
@@ -203,21 +206,21 @@ async def exchange(db_session: AsyncSession) -> Exchange:
 async def history_candles(db_session: AsyncSession) -> list[CandleHistory]:
     candles = [
         CandleHistory(
-            exchange="binance", ticker="BTC/USDT", interval="1m",
+            exchange="binance", ticker="BTC/USD", source_ticker="BTC/USDT", interval="1m",
             trade_date=datetime(2026, 6, 22).date(),
             timestamp=datetime(2026, 6, 22, 12, 0),
             open_price=65000.0, high_price=65300.0, low_price=64850.0,
             close_price=65200.0, volume=15.4,
         ),
         CandleHistory(
-            exchange="kraken", ticker="BTC/USDT", interval="1m",
+            exchange="kraken", ticker="BTC/USD", source_ticker="BTC/USDT", interval="1m",
             trade_date=datetime(2026, 6, 23).date(),
             timestamp=datetime(2026, 6, 23, 12, 0),
             open_price=65100.0, high_price=65400.0, low_price=64900.0,
             close_price=65300.0, volume=10.2,
         ),
         CandleHistory(
-            exchange="binance", ticker="ETH/USDT", interval="1m",
+            exchange="binance", ticker="ETH/USD", source_ticker="ETH/USDT", interval="1m",
             trade_date=datetime(2026, 6, 22).date(),
             timestamp=datetime(2026, 6, 22, 12, 0),
             open_price=3500.0, high_price=3550.0, low_price=3490.0,
@@ -227,3 +230,26 @@ async def history_candles(db_session: AsyncSession) -> list[CandleHistory]:
     db_session.add_all(candles)
     await db_session.commit()
     return candles
+
+
+@pytest_asyncio.fixture
+async def markets(db_session: AsyncSession) -> dict[str, Exchange]:
+    """
+    Exchange/market config for DB-driven topic resolution:
+      binance  (enabled)  — BTC/USDT enabled, ETH/USDT disabled
+      kraken   (enabled)  — BTC/USD enabled
+      coinbase (disabled) — BTC/USD enabled (ignored: exchange disabled)
+    """
+    binance = Exchange(name="binance", method="multi")
+    kraken = Exchange(name="kraken", method="ohlcv")
+    coinbase = Exchange(name="coinbase", method="trades", enabled=False)
+    db_session.add_all([binance, kraken, coinbase])
+    await db_session.flush()
+    db_session.add_all([
+        Symbol(exchange_id=binance.id, ticker="BTC/USDT", interval="1m"),
+        Symbol(exchange_id=binance.id, ticker="ETH/USDT", interval="1m", enabled=False),
+        Symbol(exchange_id=kraken.id, ticker="BTC/USD", interval="1m"),
+        Symbol(exchange_id=coinbase.id, ticker="BTC/USD", interval="1m"),
+    ])
+    await db_session.commit()
+    return {"binance": binance, "kraken": kraken, "coinbase": coinbase}

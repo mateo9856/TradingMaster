@@ -2,6 +2,8 @@
 
 TradingMaster is a real-time cryptocurrency market-data service. It collects OHLCV candle data from Binance, Kraken, and Coinbase through CCXT Pro, publishes it to Kafka, persists it in PostgreSQL/TimescaleDB through Apache Flink, and exposes it through a FastAPI REST and WebSocket API.
 
+For a non-technical overview of the business logic, use cases and improvement roadmap, see [docs/BUSINESS_SUMMARY.md](docs/BUSINESS_SUMMARY.md).
+
 ## Architecture
 
 ```text
@@ -9,7 +11,12 @@ Binance / Kraken / Coinbase -> CCXT Pro -> FastAPI producer -> Kafka -> Flink ->
                                                                     └-> FastAPI WebSocket
 ```
 
-The default watched symbols are `BTC/USDT` and `ETH/USDT`, with a `1m` candle interval. The producer creates one streaming task per configured exchange and reconnects after exchange errors.
+Markets live in the database (`exchanges` + `symbols` tables), not in code. On first start the seeder adds about 50 pairs across the three exchanges, each at the `30s`, `1m`, `5m`, `1h` and `1d` intervals. Markets added through the API are collected within `PRODUCER_CONFIG_REFRESH_SECONDS` and stored by Flink without any restart. The producer creates one streaming task per configured exchange and reconnects after exchange errors.
+
+**Unified market feed.** Every candle has the same format whatever the source exchange:
+- `ticker` is the unified USD market (`BTC/USD`), and the exchange's own market (`BTC/USDT`) is kept in `source_ticker`.
+- USDT/USDC prices are converted to USD at the live Kraken `USDT/USD` / `USDC/USD` rate (`fx_rate`).
+- Prices and volume are exact decimals, sent as 8-decimal strings (`"65000.10000000"`).
 
 ## Project layout
 
@@ -21,8 +28,10 @@ app/
 ├── models/                       SQLAlchemy ORM models and database helpers
 ├── schemas/                      Pydantic request and response schemas
 ├── helpers/                      Reusable application helpers
-├── kafka/producer.py             CCXT Pro to Kafka producer
+├── kafka/producer.py             CCXT Pro to Kafka producer (unified feed, hot-reloaded config)
+├── kafka/fx_rates.py             Live USDT/USDC → USD conversion rates
 ├── flink_jobs/candle_builder.py  Kafka to TimescaleDB Flink job
+├── flink_jobs/job_config.py      Flink job config/SQL builders (pure Python, unit-tested)
 ├── jobs/eod_archive.py           EOD archive job logic (candles -> candles_history + Parquet)
 ├── producer_runner.py            Standalone producer entry point
 └── eod_runner.py                 Standalone EOD archive entry point (one-shot, external scheduler)
@@ -57,8 +66,9 @@ Create a local `.env` file or export environment variables:
 ```dotenv
 TIMESCALE_URL=postgresql+asyncpg://user:password@localhost:5432/tradingmaster
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092
-WATCH_SYMBOLS=BTC/USDT,ETH/USDT
-WATCH_EXCHANGES=binance,kraken,coinbase
+PRODUCER_CONFIG_REFRESH_SECONDS=60   # how often the producer re-reads markets from the DB (0 = only at startup)
+FX_REFERENCE_EXCHANGE=kraken         # source of the live USDT/USD and USDC/USD rates
+FX_MAX_AGE_SECONDS=300               # older (or missing) rate → 1:1 peg fallback
 BINANCE_API_KEY=
 BINANCE_API_SECRET=
 KRAKEN_API_KEY=
@@ -70,6 +80,8 @@ AUTH_TOKEN_LIFETIME_SECONDS=3600
 ```
 
 `AUTH_SECRET` signs JWT access tokens (FastAPI Users) — set a real random value in every non-dev deployment; the built-in default is dev-only.
+
+The markets to collect are not configured through environment variables. They're managed through `/api/v1/exchanges` (see [Markets](#markets)).
 
 The API creates the `candles` table on startup. The Flink job additionally reads `TIMESCALE_JDBC_URL`, `TIMESCALE_USER`, and `TIMESCALE_PASS`.
 These variables must be exported in the shell running the job; activating `env_flink` does not load `.env` automatically. When the job runs on the host with the included Docker Compose setup, use `jdbc:postgresql://localhost:5432/tradingmaster`. When it runs in a Compose container, use `jdbc:postgresql://postgres:5432/tradingmaster`.
@@ -125,10 +137,22 @@ Other auth routes: `POST /api/v1/auth/jwt/logout`, `POST /api/v1/auth/forgot-pas
 ### Get candles
 
 ```bash
-curl 'http://localhost:8000/api/v1/market/candles/BTC%2FUSDT?exchange=binance&interval=1m&limit=100'
+curl 'http://localhost:8000/api/v1/market/candles/BTC%2FUSD?interval=5m&limit=100'
+curl 'http://localhost:8000/api/v1/market/candles/BTC-USD?exchange=binance&interval=30s'
 ```
 
-`GET /api/v1/market/candles/{ticker}` returns newest candles first. `exchange`, `interval`, and `limit` are optional. A URL-encoded ticker is supported; `404` is returned when no matching candles exist.
+`GET /api/v1/market/candles/{ticker}` returns newest candles first. `exchange`, `interval` (`30s`, `1m`, `5m`, `1h`, `1d`) and `limit` are optional.
+- Any spelling of a USD-equivalent market resolves to the unified ticker: `BTC/USD`, `BTC%2FUSDT`, `btc-usdc` and `BTCUSDT` all mean `BTC/USD`, across every exchange.
+- Returns `422` for a non-USD quote (e.g. `ETH/BTC`) and `404` when no matching candles exist.
+
+Response prices are strings with exactly 8 decimals, identical for every exchange:
+
+```json
+{"exchange": "binance", "ticker": "BTC/USD", "source_ticker": "BTC/USDT", "quote_currency": "USD",
+ "fx_rate": "0.99973000", "interval": "1m", "timestamp": "2026-09-19T18:22:00",
+ "open_price": "81457.00067000", "high_price": "81457.00067000", "low_price": "81444.00418000",
+ "close_price": "81449.65265450", "volume": "6.25249000", "id": 1}
+```
 
 ### Create a candle
 
@@ -136,23 +160,41 @@ curl 'http://localhost:8000/api/v1/market/candles/BTC%2FUSDT?exchange=binance&in
 curl -X POST http://localhost:8000/api/v1/market/candles \
   -H 'Authorization: Bearer <token>' \
   -H 'Content-Type: application/json' \
-  -d '{"exchange":"binance","ticker":"BTC/USDT","interval":"1m","open_price":65000,"high_price":65300,"low_price":64850,"close_price":65200,"volume":15.4}'
+  -d '{"exchange":"binance","ticker":"BTC/USD","interval":"1m","open_price":65000,"high_price":65300,"low_price":64850,"close_price":65200,"volume":15.4}'
 ```
 
-`POST /api/v1/market/candles` supports testing, manual insertion, and backfilling (requires an authenticated user — see [Auth](#auth)). The timestamp is optional and defaults to the current UTC time. Prices and volume must be non-negative.
+`POST /api/v1/market/candles` supports testing, manual insertion, and backfilling (requires an authenticated user — see [Auth](#auth)).
+- The timestamp is optional and defaults to the current UTC time.
+- Prices and volume must be non-negative numbers or numeric strings.
+- The ticker must be quoted in USD, because a manual insert carries no FX rate.
+- The interval must be one of the supported ones.
+
+### Markets
+
+```bash
+# one ticker + interval
+curl -X POST http://localhost:8000/api/v1/exchanges/1/symbols   -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json'   -d '{"ticker":"SOL/USDT","interval":"30s"}'
+
+# many tickers × intervals at once — existing/clashing combinations are skipped and reported
+curl -X POST http://localhost:8000/api/v1/exchanges/1/symbols/bulk   -H 'Authorization: Bearer <token>' -H 'Content-Type: application/json'   -d '{"tickers":["SOL/USDT","XRP/USDT"],"intervals":["30s","1m","5m","1h","1d"]}'
+```
+
+Quotes must be USD, USDT or USDC, and intervals must be `30s`, `1m`, `5m`, `1h` or `1d`; anything else is a `422`. A duplicate returns `409`. So does a second market for the same coin and interval on one exchange (e.g. `BTC/USD` next to `BTC/USDT`), because both would publish the unified `BTC/USD`.
+
+Where the exchange streams a timeframe natively (CCXT `exchange.timeframes`), it's used directly. Otherwise candles are built from the trade stream: `30s` on Binance/Kraken, and every interval on Coinbase.
 
 ### Stream live candles
 
 ```text
-ws://localhost:8000/api/v1/market/ws/live/BTCUSDT
-ws://localhost:8000/api/v1/market/ws/live/BTCUSDT?exchange=binance
+ws://localhost:8000/api/v1/market/ws/live/BTCUSD
+ws://localhost:8000/api/v1/market/ws/live/BTCUSD?exchange=binance
 ```
 
-Without `exchange`, the WebSocket subscribes to all configured exchanges. Messages are JSON candle objects.
+Without `exchange`, the WebSocket subscribes to every enabled exchange that has an enabled market for that coin, according to the database. Messages are unified-format JSON candles, the same shape as the REST response minus `id`, plus `schema_version`. An unknown or unsupported market is closed with code `1008`.
 
 ## Kafka topics
 
-Topics use `{exchange}.{TICKER_WITHOUT_SLASHES}.candles`, for example `binance.BTCUSDT.candles` and `kraken.ETHUSDT.candles`.
+Topics use `{exchange}.{UNIFIED_TICKER_WITHOUT_SLASH}.candles`, for example `binance.BTCUSD.candles` (fed by Binance's `BTC/USDT`) and `coinbase.BTCUSD.candles`. All intervals of a market share its topic, and each message carries its `interval`. Messages carry `"schema_version": 2`; the Flink job ignores older messages.
 
 ## Running the Flink job
 
@@ -172,19 +214,26 @@ For a host-side run against the Compose database:
 export TIMESCALE_JDBC_URL='jdbc:postgresql://localhost:5432/tradingmaster'
 export TIMESCALE_USER='user'
 export TIMESCALE_PASS='mysecretpassword'
-python -m app.flink_jobs.candle_builder
+env_flink/bin/python app/flink_jobs/candle_builder.py
 ```
+
+Run it as a script, not with `python -m app.flink_jobs...`. Importing the `app` package pulls in the API's dependencies, which `env_flink` doesn't have.
 
 For a job running inside the Compose network, set `TIMESCALE_JDBC_URL` to `jdbc:postgresql://postgres:5432/tradingmaster` instead.
 
-The current job consumes six hard-coded topics for the default exchanges and symbols and writes records through a batched JDBC sink with retries.
+How the job behaves:
+- **Topics:** it reads the enabled exchanges from the `exchanges` table (with `psycopg`) and subscribes by topic pattern, e.g. `^(binance|coinbase|kraken)\.[A-Z0-9]+\.candles$`. Topic discovery runs every `FLINK_TOPIC_DISCOVERY_INTERVAL` (default `60s`), so pairs added through the API are stored without a restart. A new exchange needs a restart. If the DB can't be reached, it subscribes to every candle topic.
+- **Resume where it stopped:** checkpointing is on (`FLINK_CHECKPOINT_INTERVAL`, default `30s`), and Kafka offsets are committed to the `flink-candle-builder` group on every checkpoint. On start the job continues from the committed offsets, or from the earliest retained offset for a new group or topic. Downtime is caught up as long as Kafka still retains the messages (7 days by default).
+- **Writes:** records go through a batched JDBC sink with retries. It upserts on `(exchange, ticker, interval, timestamp)`, so replaying a message after a restart just rewrites the same row. Prices are cast from strings straight to `DECIMAL(28, 8)`.
 
 Since `env_flink` is a separate virtualenv from `env/` (see Environments), also install the two lightweight packages the job's structured logging and trace-id extraction rely on:
 
 ```bash
 source env_flink/bin/activate
-pip install python-json-logger opentelemetry-api
+pip install python-json-logger opentelemetry-api "psycopg[binary]"
 ```
+
+`psycopg` is required: it's how the job reads the enabled exchanges from the database.
 
 If they aren't importable, the job falls back to plain-text logging rather than failing — see `app/flink_jobs/candle_builder.py`'s import guard.
 
@@ -223,8 +272,10 @@ Tests mock Kafka and exchange connections. API tests use temporary SQLite and do
 
 ## Current limitations and operational notes
 
-- The Flink SQL uses `ON CONFLICT (exchange, ticker, timestamp)`, but the SQLAlchemy model has no matching unique constraint. Add one before relying on Flink upserts.
-- The Flink topic list is hard-coded in `app/flink_jobs/candle_builder.py`.
+- **Existing databases need a one-off migration** for the multi-interval key and the unified feed (new columns, `NUMERIC(28,8)` prices, legacy tickers renamed to `BASE/USD` at a 1:1 rate). The script is idempotent:
+  `psql "$DATABASE_URL" -f scripts/migrations/2026_09_unified_feed.sql`
+- Only USD-equivalent markets (USD/USDT/USDC quotes) can be collected: the unified feed publishes every price in USD.
+- If no fresh FX rate is available (startup, or a Kraken outage longer than `FX_MAX_AGE_SECONDS`), USDT/USDC prices are converted at the 1:1 peg. `fx_rate_fallback_total` counts these conversions.
 - Running `app.producer_runner` alongside the API can create duplicate exchange streams.
 - Database creation happens at startup; Alembic is installed but migrations are not configured.
 - `candles.trace_id` (added for Jaeger correlation) only appears via `Base.metadata.create_all`, which creates missing tables but never alters existing ones — an existing local `candles` table needs a manual `ALTER TABLE candles ADD COLUMN trace_id VARCHAR(32)`, or drop the dev volume and let it rebuild.

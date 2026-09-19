@@ -39,12 +39,13 @@ async def seeded_candles(db_session):
     recent_ts = now - timedelta(days=1)
 
     old_candle = CandleORM(
-        exchange="binance", ticker="BTC/USDT", interval="1m",
+        exchange="binance", ticker="BTC/USD", source_ticker="BTC/USDT",
+        quote_currency="USD", fx_rate=1, interval="1m",
         timestamp=old_ts, open_price=100, high_price=110,
         low_price=95, close_price=105, volume=12.5,
     )
     recent_candle = CandleORM(
-        exchange="kraken", ticker="ETH/USDT", interval="1m",
+        exchange="kraken", ticker="ETH/USD", interval="1m",
         timestamp=recent_ts, open_price=200, high_price=210,
         low_price=195, close_price=205, volume=8.0,
     )
@@ -72,25 +73,27 @@ async def test_run_eod_job_archives_exports_and_cleans_up_against_real_db(
     history_rows = history_result.scalars().all()
     assert len(history_rows) == 1
     assert history_rows[0].exchange == "binance"
-    assert history_rows[0].ticker == "BTC/USDT"
+    assert history_rows[0].ticker == "BTC/USD"
+    assert history_rows[0].source_ticker == "BTC/USDT"
+    assert history_rows[0].fx_rate == 1
     assert history_rows[0].close_price == 105
 
     # 2. Exported to Parquet.
-    parquet_path = tmp_path / "binance" / "BTC-USDT" / f"{old_date}.parquet"
+    parquet_path = tmp_path / "binance" / "BTC-USD" / f"{old_date}.parquet"
     assert parquet_path.exists()
     frame = pd.read_parquet(parquet_path)
     assert list(frame["close_price"]) == [105]
 
     # 3. The old (>RETENTION_DAYS) candle was deleted from the hot table...
     hot_result = await db_session.execute(
-        select(CandleORM).where(CandleORM.exchange == "binance", CandleORM.ticker == "BTC/USDT")
+        select(CandleORM).where(CandleORM.exchange == "binance", CandleORM.ticker == "BTC/USD")
     )
     assert hot_result.scalars().all() == []
 
     # 4. ...but the recent candle (within retention) was left alone, both in
     #    the hot table and absent from history (it wasn't the archived date).
     recent_hot = await db_session.execute(
-        select(CandleORM).where(CandleORM.exchange == "kraken", CandleORM.ticker == "ETH/USDT")
+        select(CandleORM).where(CandleORM.exchange == "kraken", CandleORM.ticker == "ETH/USD")
     )
     assert len(recent_hot.scalars().all()) == 1
 
