@@ -2,7 +2,15 @@
 
 from .api_response import ApiResponse
 from .candle import CandleBase, CandleCreate, CandleResponse
-from .exchange import ExchangeCreate, ExchangeResponse, SymbolCreate, SymbolResponse
+from .exchange import (
+    ExchangeCreate,
+    ExchangeResponse,
+    SymbolBulkCreate,
+    SymbolBulkResult,
+    SymbolCreate,
+    SymbolResponse,
+    SymbolSkipped,
+)
 from .history import CandleHistoryResponse
 
 __all__ = [
@@ -13,6 +21,9 @@ __all__ = [
     "CandleHistoryResponse",
     "ExchangeCreate",
     "ExchangeResponse",
+    "SymbolBulkCreate",
+    "SymbolBulkResult",
     "SymbolCreate",
     "SymbolResponse",
+    "SymbolSkipped",
 ]

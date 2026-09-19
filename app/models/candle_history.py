@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Date, Index
+from sqlalchemy import Column, Integer, String, DateTime, Date, Index
+from .candle import PRICE_TYPE
 from .database import Base
 from app.helpers.time import utc_now_naive
 
@@ -21,11 +22,14 @@ class CandleHistory(Base):
     interval    = Column(String, nullable=False, default="1m")
     trade_date  = Column(Date, nullable=False)        # date part of timestamp, for fast filtering
     timestamp   = Column(DateTime, nullable=False)
-    open_price  = Column(Float, nullable=False)
-    high_price  = Column(Float, nullable=False)
-    low_price   = Column(Float, nullable=False)
-    close_price = Column(Float, nullable=False)
-    volume      = Column(Float, nullable=False)
+    open_price  = Column(PRICE_TYPE, nullable=False)
+    high_price  = Column(PRICE_TYPE, nullable=False)
+    low_price   = Column(PRICE_TYPE, nullable=False)
+    close_price = Column(PRICE_TYPE, nullable=False)
+    volume      = Column(PRICE_TYPE, nullable=False)
+    source_ticker  = Column(String, nullable=True)       # see Candle.source_ticker
+    quote_currency = Column(String(8), nullable=True, default="USD")
+    fx_rate        = Column(PRICE_TYPE, nullable=True)
     archived_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
     __table_args__ = (

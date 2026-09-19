@@ -15,9 +15,10 @@ WORKDIR /opt/flink/jobs
 
 # Build context is the repo root (see docker-compose.yml's `flink` service).
 COPY requirements.txt .
-RUN pip install --no-cache-dir --break-system-packages apache-flink==2.3.0 python-json-logger opentelemetry-api
+RUN pip install --no-cache-dir --break-system-packages apache-flink==2.3.0 python-json-logger opentelemetry-api "psycopg[binary]"
 
 COPY app/flink_jobs/candle_builder.py .
+COPY app/flink_jobs/job_config.py .
 COPY app/flink_jobs/jars ./jars
 COPY app/.env .
 

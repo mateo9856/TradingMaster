@@ -50,3 +50,21 @@ http_request_duration_seconds = Histogram(
     "HTTP request duration in seconds",
     ["method", "path"],
 )
+
+fx_rate = Gauge(
+    "fx_rate",
+    "Latest live rate used to convert a quote currency to USD",
+    ["quote"],
+)
+
+fx_rate_fallback_total = Counter(
+    "fx_rate_fallback_total",
+    "Number of conversions that used the 1:1 USD peg because no fresh live rate was available",
+    ["quote"],
+)
+
+candles_skipped_total = Counter(
+    "candles_skipped_total",
+    "Number of exchange candles dropped because they could not be converted to the unified format",
+    ["exchange"],
+)

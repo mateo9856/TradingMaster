@@ -1,7 +1,12 @@
 """
 PyFlink Candle Builder Job — Table API version
 
-Reads raw candle JSON from Kafka topics and writes to PostgreSQL.
+Reads unified candle JSON from Kafka topics and writes to PostgreSQL.
+
+Resumes where it stopped: Kafka offsets are committed on every checkpoint and
+the job starts from the committed offsets. The subscribed topics come from the
+enabled exchanges in the database (a topic pattern + partition discovery), so
+new pairs are stored without a restart. See job_config.py for details.
 
 This version uses PyFlink Table API with SQL DDL. The required connector JARs
 are added to the local TableEnvironment at startup.
@@ -18,11 +23,20 @@ Run:
 """
 
 import os
+import sys
 import logging
 from pathlib import Path
 
 from pyflink.table import DataTypes, EnvironmentSettings, TableEnvironment
 from pyflink.table.udf import ScalarFunction, udf
+
+try:
+    from app.flink_jobs import job_config
+except ImportError:
+    # env_flink / the Flink image can't import the `app` package (it pulls in
+    # the API's dependencies) — load job_config.py as a sibling module instead.
+    sys.path.insert(0, str(Path(__file__).parent))
+    import job_config
 
 try:
     from app.logging_config import setup_json_logging
@@ -75,18 +89,6 @@ class ExtractTraceId(ScalarFunction):
             return None
         return parts[1]
 
-# Kafka topics to consume
-# Flink's Kafka SQL connector expects a semicolon-separated topic list.
-KAFKA_TOPICS = ";".join([
-    "binance.BTCUSDT.candles",
-    "binance.ETHUSDT.candles",
-    "binance.BNBUSDT.candles",
-    "kraken.BTCUSDT.candles",
-    "kraken.ETHUSDT.candles",
-    "coinbase.BTCUSD.candles",
-    "coinbase.ETHUSD.candles",
-])
-
 # ── JAR paths — download these once (see INSTALL.md) ─────────────────────────
 JARS_DIR = Path(__file__).parent / "jars"
 JARS = [
@@ -123,6 +125,10 @@ def main():
     t_env.get_config().set("pipeline.jars", jar_config)
     t_env.get_config().set("parallelism.default", "2")
 
+    # Checkpointing — commits Kafka offsets so a restarted job resumes where it stopped.
+    for key, value in job_config.build_runtime_config(os.environ).items():
+        t_env.get_config().set(key, value)
+
     # Flink's own JVM-side metrics reporter — separate from prometheus_client,
     # scraped by Prometheus as its own `flink` target.
     t_env.get_config().set("metrics.reporters", "prom")
@@ -132,7 +138,9 @@ def main():
     )
     t_env.get_config().set("metrics.reporter.prom.port", METRICS_PROM_PORT)
 
-    logger.info(f"Kafka topics: {KAFKA_TOPICS}")
+    topic_pattern = job_config.resolve_topic_pattern(TIMESCALE_URL, TIMESCALE_USER, TIMESCALE_PASS)
+    discovery_interval = job_config.topic_discovery_interval(os.environ)
+    logger.info(f"Kafka topic pattern: {topic_pattern} (discovery every {discovery_interval})")
     logger.info(f"PostgreSQL:   {TIMESCALE_URL}")
     logger.info(f"OTel trace-id correlation: {'enabled' if OTEL_ENABLED else 'disabled'}")
 
@@ -140,79 +148,17 @@ def main():
         t_env.create_temporary_function("extract_trace_id", udf(ExtractTraceId(), result_type=DataTypes.STRING()))
 
     # ── Kafka Source Table ────────────────────────────────────────────────────
-    # `headers` is a Kafka connector metadata column — lets SQL read the
-    # traceparent header the producer attaches, with no DataStream API needed.
-    t_env.execute_sql(f"""
-        CREATE TABLE kafka_candles (
-            exchange    STRING,
-            ticker      STRING,
-            `interval`  STRING,
-            `timestamp` STRING,
-            open_price  DOUBLE,
-            high_price  DOUBLE,
-            low_price   DOUBLE,
-            close_price DOUBLE,
-            volume      DOUBLE,
-            headers     MAP<STRING, BYTES> METADATA VIRTUAL,
-            proc_time   AS PROCTIME()
-        ) WITH (
-            'connector'                     = 'kafka',
-            'topic'                         = '{KAFKA_TOPICS}',
-            'properties.bootstrap.servers'  = '{KAFKA_SERVERS}',
-            'properties.group.id'           = 'flink-candle-builder',
-            'scan.startup.mode'             = 'latest-offset',
-            'format'                        = 'json',
-            'json.fail-on-missing-field'    = 'false',
-            'json.ignore-parse-errors'      = 'true'
-        )
-    """)
+    t_env.execute_sql(job_config.build_source_ddl(topic_pattern, KAFKA_SERVERS, discovery_interval))
 
     # ── PostgreSQL Sink Table ─────────────────────────────────────────────────
-    t_env.execute_sql(f"""
-        CREATE TABLE postgres_candles (
-            exchange    STRING,
-            ticker      STRING,
-            `interval`  STRING,
-            `timestamp` TIMESTAMP(3),
-            open_price  DOUBLE,
-            high_price  DOUBLE,
-            low_price   DOUBLE,
-            close_price DOUBLE,
-            volume      DOUBLE,
-            trace_id    STRING,
-            PRIMARY KEY (exchange, ticker, `timestamp`) NOT ENFORCED
-        ) WITH (
-            'connector'  = 'jdbc',
-            'url'        = '{TIMESCALE_URL}',
-            'table-name' = 'candles',
-            'username'   = '{TIMESCALE_USER}',
-            'password'   = '{TIMESCALE_PASS}',
-            'sink.buffer-flush.max-rows'       = '100',
-            'sink.buffer-flush.interval'       = '5s',
-            'sink.max-retries'                 = '3'
-        )
-    """)
+    t_env.execute_sql(job_config.build_sink_ddl(TIMESCALE_URL, TIMESCALE_USER, TIMESCALE_PASS))
 
     # ── Stream: Kafka → PostgreSQL ────────────────────────────────────────────
     logger.info("Starting stream: Kafka → PostgreSQL...")
     trace_id_expr = (
         "extract_trace_id(CAST(headers['traceparent'] AS STRING))" if OTEL_ENABLED else "CAST(NULL AS STRING)"
     )
-    t_env.execute_sql(f"""
-        INSERT INTO postgres_candles
-        SELECT
-            exchange,
-            ticker,
-            `interval`,
-            TO_TIMESTAMP(`timestamp`, 'yyyy-MM-dd''T''HH:mm:ss'),
-            open_price,
-            high_price,
-            low_price,
-            close_price,
-            volume,
-            {trace_id_expr}
-        FROM kafka_candles
-    """).wait()
+    t_env.execute_sql(job_config.build_insert_sql(trace_id_expr)).wait()
 
 
 if __name__ == "__main__":

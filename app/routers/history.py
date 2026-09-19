@@ -8,7 +8,6 @@ GET /api/v1/history/{ticker}/export — trigger manual EOD job for a date
 import logging
 from datetime import date
 from typing import List, Optional
-from urllib.parse import unquote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
@@ -18,6 +17,7 @@ from app.auth import current_active_user
 from app.models.database import get_db
 from app.models.candle_history import CandleHistory
 from app.models.user import User
+from app.routers.market import resolve_ticker
 from app.schemas import ApiResponse, CandleHistoryResponse
 
 logger = logging.getLogger(__name__)
@@ -41,8 +41,9 @@ async def get_history(
     """
     Query archived candle history for a ticker and date range.
     Returns up to `limit` rows ordered by timestamp ascending.
+    Any spelling of a USD-equivalent market resolves to the unified ticker (BTC/USDT → BTC/USD).
     """
-    ticker_upper = unquote(ticker).upper()
+    ticker_upper = resolve_ticker(ticker)
 
     query = (
         select(CandleHistory)

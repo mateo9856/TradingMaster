@@ -9,13 +9,14 @@ What it does:
   3. Exports them to Parquet files on disk (for backtesting / ML)
   4. Deletes candles older than RETENTION_DAYS from the hot `candles` table
 
-File structure of Parquet exports:
+File structure of Parquet exports (one file per exchange + unified ticker +
+day, all intervals in it — filter on the `interval` column):
   data/
     binance/
-      BTC-USDT/
+      BTC-USD/
         2026-09-05.parquet
     kraken/
-      BTC-USDT/
+      BTC-USD/
         2026-09-05.parquet
 
 Run manually:
@@ -34,6 +35,7 @@ from app.metrics import eod_job_duration_seconds, eod_job_runs_total
 from app.models.candle import Candle
 from app.models.candle_history import CandleHistory
 from app.models.database import AsyncSessionLocal
+from app.helpers.prices import PRICE_SCALE
 from app.helpers.time import utc_now_naive
 
 logger = logging.getLogger(__name__)
@@ -43,6 +45,9 @@ RETENTION_DAYS: int = 7
 
 # Where to write Parquet exports
 PARQUET_BASE_DIR = Path("data")
+
+# Exact-decimal columns in the Parquet export
+DECIMAL_COLUMNS = ("open_price", "high_price", "low_price", "close_price", "volume", "fx_rate")
 
 
 async def _archive_date(db: AsyncSession, target_date: date) -> int:
@@ -78,6 +83,9 @@ async def _archive_date(db: AsyncSession, target_date: date) -> int:
             low_price   = c.low_price,
             close_price = c.close_price,
             volume      = c.volume,
+            source_ticker  = c.source_ticker,
+            quote_currency = c.quote_currency,
+            fx_rate        = c.fx_rate,
         )
         for c in candles
     ]
@@ -91,10 +99,12 @@ async def _archive_date(db: AsyncSession, target_date: date) -> int:
 async def _export_parquet(db: AsyncSession, target_date: date) -> None:
     """
     Exports candles_history for target_date to Parquet files.
-    Groups by exchange and ticker for efficient file layout.
+    Groups by exchange and ticker for efficient file layout. Prices are
+    written as exact decimals (Parquet decimal128), not floats.
     """
     try:
         import pandas as pd
+        import pyarrow.parquet as pq
     except ImportError:
         logger.warning("pandas not installed — skipping Parquet export. Run: pip install pandas pyarrow")
         return
@@ -119,6 +129,9 @@ async def _export_parquet(db: AsyncSession, target_date: date) -> None:
         "low_price":   r.low_price,
         "close_price": r.close_price,
         "volume":      r.volume,
+        "source_ticker":  r.source_ticker,
+        "quote_currency": r.quote_currency,
+        "fx_rate":        r.fx_rate,
     } for r in rows])
 
     # Write one Parquet file per exchange+ticker combination
@@ -128,10 +141,25 @@ async def _export_parquet(db: AsyncSession, target_date: date) -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / f"{target_date}.parquet"
 
-        group.drop(columns=["exchange", "ticker"]).to_parquet(
-            out_path, index=False, engine="pyarrow"
-        )
+        pq.write_table(_to_arrow(group.drop(columns=["exchange", "ticker"])), out_path)
         logger.info(f"Exported Parquet: {out_path} ({len(group)} rows)")
+
+
+def _to_arrow(frame):
+    """
+    DataFrame → Arrow table with every price column pinned to decimal128(28, 8)
+    (matching NUMERIC(28, 8) in the database), so all files share one schema
+    instead of a precision inferred from each file's values.
+    """
+    import pyarrow as pa
+
+    table = pa.Table.from_pandas(frame, preserve_index=False)
+    decimal = pa.decimal128(28, PRICE_SCALE)
+    schema = pa.schema([
+        field.with_type(decimal) if field.name in DECIMAL_COLUMNS else field
+        for field in table.schema
+    ])
+    return table.cast(schema)
 
 
 async def _cleanup_old_candles(db: AsyncSession) -> int:

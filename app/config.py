@@ -9,9 +9,18 @@ TIMESCALE_URL: str = os.getenv("TIMESCALE_URL", "postgresql+asyncpg://user:mysec
 # Kafka
 KAFKA_BOOTSTRAP_SERVERS: str = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
 
-# Symbols and exchanges to watch
-WATCH_SYMBOLS: list[str] = os.getenv("WATCH_SYMBOLS", "BTC/USDT,ETH/USDT").split(",")
-WATCH_EXCHANGES: list[str] = os.getenv("WATCH_EXCHANGES", "binance,kraken,coinbase").split(",")
+# Markets (exchanges + trading pairs + intervals) are NOT configured here — they
+# live in the `exchanges` / `symbols` tables (seeded by app/models/seeder.py,
+# managed through /api/v1/exchanges). The producer re-reads them every
+# PRODUCER_CONFIG_REFRESH_SECONDS, so API changes apply without a restart.
+# 0 disables the refresh (config is read once at startup).
+PRODUCER_CONFIG_REFRESH_SECONDS: int = int(os.getenv("PRODUCER_CONFIG_REFRESH_SECONDS", "60"))
+
+# Unified feed: every price is published in USD. USDT/USDC-quoted markets are
+# converted with live USDT/USD and USDC/USD rates from this exchange; a rate
+# older than FX_MAX_AGE_SECONDS (or none yet) falls back to the 1:1 peg.
+FX_REFERENCE_EXCHANGE: str = os.getenv("FX_REFERENCE_EXCHANGE", "kraken")
+FX_MAX_AGE_SECONDS: int = int(os.getenv("FX_MAX_AGE_SECONDS", "300"))
 
 # Exchange API keys — optional, only needed for private/trading endpoints
 # Public candle/ticker streams work without keys

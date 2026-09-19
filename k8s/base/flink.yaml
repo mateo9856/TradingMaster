@@ -32,6 +32,10 @@ spec:
               value: "true"
             - name: FLINK_METRICS_PROMETHEUS_PORT
               value: "9250-9260"
+            - name: FLINK_CHECKPOINT_INTERVAL
+              value: "30s"
+            - name: FLINK_TOPIC_DISCOVERY_INTERVAL
+              value: "60s"
           ports:
             - containerPort: 9250
               name: metrics
