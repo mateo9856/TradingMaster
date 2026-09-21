@@ -8,6 +8,7 @@ resources:
   - postgres.yaml
   - kafka.yaml
   - fastapi.yaml
+  - frontend.yaml
   - flink.yaml
   - eod-cronjob.yaml
   - prometheus.yaml

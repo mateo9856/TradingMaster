@@ -30,6 +30,15 @@ EXCHANGE_CREDENTIALS: dict = {
     "coinbase": {"apiKey": os.getenv("COINBASE_API_KEY", ""), "secret": os.getenv("COINBASE_API_SECRET", "")},
 }
 
+# Front-end: browser origins allowed to call the API cross-origin. Only needed
+# when the UI is served separately (nginx container / another host) — the Vite
+# dev proxy and the FastAPI-served production bundle are same-origin.
+CORS_ALLOW_ORIGINS: list[str] = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
+    if origin.strip()
+]
+
 # Observability — metrics
 PROMETHEUS_METRICS_ENABLED: bool = os.getenv("PROMETHEUS_METRICS_ENABLED", "true").lower() == "true"
 
@@ -45,3 +54,11 @@ LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
 # deployment; this default is dev-only and must never be used in production.
 AUTH_SECRET: str = os.getenv("AUTH_SECRET", "dev-insecure-secret-change-me-in-every-real-deployment")
 AUTH_TOKEN_LIFETIME_SECONDS: int = int(os.getenv("AUTH_TOKEN_LIFETIME_SECONDS", "3600"))
+
+# Browser sessions ride in an http-only cookie the page's JavaScript cannot read
+# (see app/auth/backend.py); API clients keep using `Authorization: Bearer`.
+AUTH_COOKIE_NAME: str = os.getenv("AUTH_COOKIE_NAME", "tradingmaster_auth")
+# `Secure` means "HTTPS only" — the browser would then drop the cookie on a
+# plain-http localhost, so the dev default is false. Like AUTH_SECRET, this must
+# be overridden (AUTH_COOKIE_SECURE=true) in every real deployment.
+AUTH_COOKIE_SECURE: bool = os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true"

@@ -5,6 +5,7 @@ from .candle import CandleBase, CandleCreate, CandleResponse
 from .exchange import (
     ExchangeCreate,
     ExchangeResponse,
+    MarketResponse,
     SymbolBulkCreate,
     SymbolBulkResult,
     SymbolCreate,
@@ -21,6 +22,7 @@ __all__ = [
     "CandleHistoryResponse",
     "ExchangeCreate",
     "ExchangeResponse",
+    "MarketResponse",
     "SymbolBulkCreate",
     "SymbolBulkResult",
     "SymbolCreate",

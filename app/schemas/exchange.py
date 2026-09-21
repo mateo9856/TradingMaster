@@ -74,6 +74,14 @@ class SymbolResponse(BaseModel):
         from_attributes = True
 
 
+class MarketResponse(BaseModel):
+    """One unified market, as published by the feed — see GET /api/v1/market/markets."""
+
+    ticker: str = Field(..., examples=["BTC/USD"], description="Unified ticker; prices are always in USD")
+    exchanges: List[str] = Field(..., examples=[["binance", "kraken"]], description="Exchanges feeding this market")
+    intervals: List[str] = Field(..., examples=[list(SUPPORTED_INTERVALS)], description="Candle lengths collected")
+
+
 class SymbolSkipped(BaseModel):
     ticker: str
     interval: str

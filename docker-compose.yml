@@ -69,6 +69,25 @@ services:
       - kafka
       - postgres
 
+  # ── Front-end (optional) ─────────────────────────────────────────────────────
+  # The UI also runs without this service: `cd frontend && npm run dev` (proxying
+  # to the API), or built into the API image (see Dockerfile). This service is
+  # the "UI as its own deployable" variant — nginx serving the bundle and
+  # proxying /api to the API, which runs on the host in this Compose setup.
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: tradingmaster-frontend
+    environment:
+      # The API must listen on 0.0.0.0 for this to resolve — `uvicorn app.main:app
+      # --host 0.0.0.0`. Bound to 127.0.0.1 the container can't reach it (502).
+      API_HOST: "host.docker.internal:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # the API runs on the host, not in Compose
+    ports:
+      - "5174:8080"
+
   # ── Stage 2: Prometheus + Grafana ────────────────────────────────────────────
   prometheus:
     image: prom/prometheus:v2.55.1

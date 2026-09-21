@@ -289,3 +289,68 @@ async def test_resolve_topics_ignores_disabled_symbols_and_exchanges(db_session,
 async def test_resolve_topics_unknown_or_unsupported_market_is_empty(db_session, markets):
     assert await _resolve_topics(db_session, "DOGEUSD") == []
     assert await _resolve_topics(db_session, "ETHBTC") == []
+
+
+# ---------------------------------------------------------------------------
+# GET /markets — the market picker's data source
+# ---------------------------------------------------------------------------
+
+async def test_list_markets_merges_exchanges_per_unified_ticker(client, markets, db_session):
+    from app.models.exchange import Symbol
+
+    binance_id = markets["binance"].id
+    db_session.add_all([
+        Symbol(exchange_id=binance_id, ticker="BTC/USDT", interval="30s"),
+        Symbol(exchange_id=binance_id, ticker="SOL/USDT", interval="1d"),
+    ])
+    await db_session.commit()
+
+    response = await client.get("/api/v1/market/markets")
+
+    assert response.status_code == status.HTTP_200_OK
+    data = response.json()["data"]
+    assert [m["ticker"] for m in data] == ["BTC/USD", "SOL/USD"]
+    btc = data[0]
+    # binance feeds it from BTC/USDT, kraken from BTC/USD — one entry, both exchanges
+    assert btc["exchanges"] == ["binance", "kraken"]
+    assert btc["intervals"] == ["30s", "1m"]          # sorted shortest first
+    assert data[1] == {"ticker": "SOL/USD", "exchanges": ["binance"], "intervals": ["1d"]}
+
+
+async def test_list_markets_excludes_disabled_exchanges_and_symbols(client, markets):
+    response = await client.get("/api/v1/market/markets")
+
+    # ETH/USDT is a disabled symbol, coinbase is a disabled exchange
+    tickers = [m["ticker"] for m in response.json()["data"]]
+    assert tickers == ["BTC/USD"]
+    assert "coinbase" not in response.json()["data"][0]["exchanges"]
+
+
+async def test_list_markets_skips_rows_the_unified_feed_cannot_publish(client, markets, db_session):
+    from app.models.exchange import Symbol
+
+    db_session.add_all([
+        Symbol(exchange_id=markets["binance"].id, ticker="ETH/BTC", interval="1m"),    # not USD-equivalent
+        Symbol(exchange_id=markets["binance"].id, ticker="BTC/USDT", interval="15m"),  # unsupported interval
+    ])
+    await db_session.commit()
+
+    response = await client.get("/api/v1/market/markets")
+
+    data = response.json()["data"]
+    assert [m["ticker"] for m in data] == ["BTC/USD"]
+    assert data[0]["intervals"] == ["1m"]
+
+
+async def test_list_markets_is_empty_without_configured_markets(client):
+    response = await client.get("/api/v1/market/markets")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["data"] == []
+    assert "0 market" in response.json()["message"]
+
+
+async def test_list_markets_is_public(anonymous_client, markets):
+    response = await anonymous_client.get("/api/v1/market/markets")
+
+    assert response.status_code == status.HTTP_200_OK

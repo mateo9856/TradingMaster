@@ -18,6 +18,30 @@ Markets live in the database (`exchanges` + `symbols` tables), not in code. On f
 - USDT/USDC prices are converted to USD at the live Kraken `USDT/USD` / `USDC/USD` rate (`fx_rate`).
 - Prices and volume are exact decimals, sent as 8-decimal strings (`"65000.10000000"`).
 
+## Web UI
+
+An MVP React dashboard lives in `frontend/` — the fastest way to see the pipeline working:
+
+- **Live** — pick a market, interval and exchange; a candlestick chart seeded from the REST API and kept moving by the WebSocket, with the raw unified message shown next to it.
+- **History** — query archived candles for a date range, and trigger the end-of-day archive (needs an account).
+- **System** — health, candles produced per exchange, live USD conversion rates, dropped candles and peg fallbacks.
+- **Sign in / profile** — register, log in, log out. Reading is public; changes need a token.
+
+```bash
+cd frontend
+npm install
+npm run dev        # http://localhost:5173, proxies /api and the WebSocket to :8000
+npm run test:run   # unit + screen tests (Vitest, no API needed)
+npm run build      # production bundle in frontend/dist
+```
+
+Serving it, two ways:
+
+1. **From FastAPI (single origin, no CORS).** Run `npm run build`; the API then serves `frontend/dist` at `/` and keeps `/api`, `/docs` and `/metrics` working. The root `Dockerfile` does this build for you.
+2. **As its own container.** `docker compose up -d --build frontend` runs nginx on <http://localhost:5174>, serving the bundle and proxying `/api` (WebSocket included) to the API on the host. Start the API with `uvicorn app.main:app --host 0.0.0.0` for this mode — bound to `127.0.0.1` (uvicorn's default) it is unreachable from the container and nginx answers `502`. Kubernetes: `k8s/base/frontend.yaml`, which points at `fastapi-service:8000` instead. Cross-origin setups need `CORS_ALLOW_ORIGINS` (below).
+
+How the session works: signing in through the UI sets an **http-only, `SameSite=strict` cookie**, so no token is ever handed to page JavaScript — an XSS hole or a rogue dependency has nothing to steal. Because browsers attach cookies automatically, the API also requires an `X-Requested-With` header on cookie-authenticated writes (see [Auth](#auth)). Set `AUTH_COOKIE_SECURE=true` wherever the site is served over HTTPS. Cookie auth needs the UI and API on one origin, which both setups below already are; a UI hosted on a different domain should use bearer tokens instead.
+
 ## Project layout
 
 ```text
@@ -36,6 +60,12 @@ app/
 ├── producer_runner.py            Standalone producer entry point
 └── eod_runner.py                 Standalone EOD archive entry point (one-shot, external scheduler)
 tests/                            Unit and API/integration tests
+frontend/                         React + Vite MVP UI
+├── src/lib/                      API client, unified-format helpers, auth
+├── src/hooks/useLiveCandles.ts   WebSocket live candle stream
+├── src/components/               Chart, shell and UI primitives
+├── src/pages/                    Live, History, System, Login, Profile
+└── src/test/                     Vitest setup, mock API (MSW), fake WebSocket
 ```
 
 ## Requirements
@@ -66,6 +96,9 @@ Create a local `.env` file or export environment variables:
 ```dotenv
 TIMESCALE_URL=postgresql+asyncpg://user:password@localhost:5432/tradingmaster
 KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+CORS_ALLOW_ORIGINS=http://localhost:5173   # only needed when the UI is served from another origin
+AUTH_COOKIE_NAME=tradingmaster_auth        # browser session cookie
+AUTH_COOKIE_SECURE=false                   # true wherever the site is served over HTTPS
 PRODUCER_CONFIG_REFRESH_SECONDS=60   # how often the producer re-reads markets from the DB (0 = only at startup)
 FX_REFERENCE_EXCHANGE=kraken         # source of the live USDT/USD and USDC/USD rates
 FX_MAX_AGE_SECONDS=300               # older (or missing) rate → 1:1 peg fallback
@@ -79,7 +112,7 @@ AUTH_SECRET=
 AUTH_TOKEN_LIFETIME_SECONDS=3600
 ```
 
-`AUTH_SECRET` signs JWT access tokens (FastAPI Users) — set a real random value in every non-dev deployment; the built-in default is dev-only.
+`AUTH_SECRET` signs the session JWTs (FastAPI Users) — set a real random value in every non-dev deployment; the built-in default is dev-only. `AUTH_COOKIE_SECURE` defaults to `false` so plain-http local development works; set it to `true` in every real deployment (the production Kustomize overlay already does).
 
 The markets to collect are not configured through environment variables. They're managed through `/api/v1/exchanges` (see [Markets](#markets)).
 
@@ -108,7 +141,16 @@ python -m app.producer_runner
 
 ## Auth
 
-User accounts and JWT bearer auth are provided by [FastAPI Users](https://fastapi-users.github.io/fastapi-users/) (`app/auth/`), backed by a `users` table via `fastapi-users-db-sqlalchemy`. All read (`GET`) endpoints and the market WebSocket stream remain public; every mutating (`POST`/`PUT`) endpoint under `/api/v1/market`, `/api/v1/exchanges`, and the manual history-archive trigger requires a valid bearer token from an active user.
+User accounts are provided by [FastAPI Users](https://fastapi-users.github.io/fastapi-users/) (`app/auth/`), backed by a `users` table via `fastapi-users-db-sqlalchemy`. All read (`GET`) endpoints and the market WebSocket stream remain public; every mutating (`POST`/`PUT`/`PATCH`) endpoint under `/api/v1/market`, `/api/v1/exchanges`, and the manual history-archive trigger requires an authenticated active user.
+
+The same JWT travels two ways, and protected endpoints accept either:
+
+| | Login | Carries the token | CSRF |
+|---|---|---|---|
+| **Browser (the UI)** | `POST /api/v1/auth/cookie/login` → `204` + `Set-Cookie` | http-only `SameSite=strict` cookie, unreadable from JavaScript | writes must send `X-Requested-With` |
+| **API clients** (curl, Swagger, integrations) | `POST /api/v1/auth/jwt/login` → `{"access_token": …}` | `Authorization: Bearer <token>` header | not applicable — no cookie, no guard |
+
+A cookie-authenticated write without the header is rejected with `403`; a cross-site page cannot add that header without a CORS preflight, which is only granted to `CORS_ALLOW_ORIGINS`. Bearer requests are never affected, so every example below keeps working.
 
 Register and log in:
 
@@ -130,7 +172,17 @@ curl -X POST http://localhost:8000/api/v1/exchanges \
   -d '{"name":"coinbase","method":"trades"}'
 ```
 
-Other auth routes: `POST /api/v1/auth/jwt/logout`, `POST /api/v1/auth/forgot-password` / `POST /api/v1/auth/reset-password`, `POST /api/v1/auth/request-verify-token` / `POST /api/v1/auth/verify`, and `GET`/`PATCH /api/v1/users/me` (self-service profile). `/docs`'s Swagger UI has a built-in **Authorize** button that accepts the bearer token directly.
+Signing in as the UI does, with cookies:
+
+```bash
+curl -c cookies.txt -X POST http://localhost:8000/api/v1/auth/cookie/login \
+  -d 'username=trader@example.com&password=supersecret123'
+
+curl -b cookies.txt -X POST http://localhost:8000/api/v1/history/archive/2026-09-19 \
+  -H 'X-Requested-With: tradingmaster-ui'     # without this header: 403
+```
+
+Other auth routes: `POST /api/v1/auth/cookie/logout`, `POST /api/v1/auth/jwt/logout`, `POST /api/v1/auth/forgot-password` / `POST /api/v1/auth/reset-password`, `POST /api/v1/auth/request-verify-token` / `POST /api/v1/auth/verify`, and `GET`/`PATCH /api/v1/users/me` (self-service profile). `/docs`'s Swagger UI has a built-in **Authorize** button that accepts the bearer token directly.
 
 ## API
 
@@ -168,6 +220,13 @@ curl -X POST http://localhost:8000/api/v1/market/candles \
 - Prices and volume must be non-negative numbers or numeric strings.
 - The ticker must be quoted in USD, because a manual insert carries no FX rate.
 - The interval must be one of the supported ones.
+
+`GET /api/v1/market/markets` lists the markets currently collected — one entry per unified ticker with the exchanges feeding it and the intervals available. It's what the UI's market picker is built from:
+
+```bash
+curl http://localhost:8000/api/v1/market/markets
+# {"ticker":"BTC/USD","exchanges":["binance","coinbase","kraken"],"intervals":["30s","1m","5m","1h","1d"]}
+```
 
 ### Markets
 
@@ -280,4 +339,5 @@ Tests mock Kafka and exchange connections. API tests use temporary SQLite and do
 - Database creation happens at startup; Alembic is installed but migrations are not configured.
 - `candles.trace_id` (added for Jaeger correlation) only appears via `Base.metadata.create_all`, which creates missing tables but never alters existing ones — an existing local `candles` table needs a manual `ALTER TABLE candles ADD COLUMN trace_id VARCHAR(32)`, or drop the dev volume and let it rebuild.
 - Jaeger and Loki run with in-memory/ephemeral storage in this compose/k8s setup — traces and logs don't survive a restart. Fine for local dev; production needs real storage backends (Elasticsearch/Cassandra for Jaeger, a persistent volume + retention config for Loki), not implemented here.
-- Keep `.env`, credentials, passwords, and generated database files out of version control.
+- The UI has no screen for managing exchanges and symbols yet — that is API-only (see [Markets](#markets)). It's the first item on the UI backlog in the business summary.
+- Keep `.env`, credentials, passwords, `node_modules/`, `frontend/dist/` and generated database files out of version control.

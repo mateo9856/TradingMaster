@@ -10,13 +10,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_active_user
 from app.config import KAFKA_BOOTSTRAP_SERVERS
+from app.helpers.intervals import SUPPORTED_INTERVALS
 from app.helpers.markets import topic_ticker, unified_ticker
 from app.metrics import websocket_active_connections
 from app.models.candle import Candle
 from app.models.database import AsyncSessionLocal, get_db
 from app.models.exchange import Exchange, Symbol
 from app.models.user import User
-from app.schemas import ApiResponse, CandleCreate, CandleResponse
+from app.schemas import ApiResponse, CandleCreate, CandleResponse, MarketResponse
 
 logger = logging.getLogger(__name__)
 
@@ -42,8 +43,46 @@ def resolve_ticker(ticker: str) -> str:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
 
 
+# ── REST: market list ────────────────────────────────────────────────────────
+
+@router.get("/markets", response_model=ApiResponse[List[MarketResponse]])
+async def list_markets(db: AsyncSession = Depends(get_db)):
+    """
+    Markets currently collected, as the unified feed publishes them — one entry
+    per unified ticker, with the exchanges feeding it and the intervals
+    available. Public; this is what a UI's market picker is built from.
+    """
+    result = await db.execute(
+        select(Exchange.name, Symbol.ticker, Symbol.interval)
+        .join(Symbol, Symbol.exchange_id == Exchange.id)
+        .where(Exchange.enabled == True, Symbol.enabled == True)  # noqa: E712
+    )
+
+    markets: dict[str, dict[str, set]] = {}
+    for exchange_name, source_ticker, interval in result.all():
+        if interval not in SUPPORTED_INTERVALS:
+            continue
+        try:
+            unified = unified_ticker(source_ticker)
+        except ValueError:
+            continue   # legacy row the unified feed can't publish
+        entry = markets.setdefault(unified, {"exchanges": set(), "intervals": set()})
+        entry["exchanges"].add(exchange_name)
+        entry["intervals"].add(interval)
+
+    data = [
+        MarketResponse(
+            ticker=ticker,
+            exchanges=sorted(entry["exchanges"]),
+            intervals=sorted(entry["intervals"], key=SUPPORTED_INTERVALS.index),
+        )
+        for ticker, entry in sorted(markets.items())
+    ]
+    return ApiResponse(status="success", message=f"Found {len(data)} market(s)", data=data)
+
+
 # ── REST: GET candles ─────────────────────────────────────────────────────────
- 
+
 @router.get(
     "/candles/{ticker:path}",
     response_model=ApiResponse[List[CandleResponse]],

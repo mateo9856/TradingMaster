@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens (shadcn/ui convention): every colour is a CSS variable, so
+ * `bg-background`, `text-muted-foreground` etc. work in both themes and any
+ * official shadcn component dropped in later inherits the same palette.
+ */
+:root {
+  --background: oklch(0.99 0 0);
+  --foreground: oklch(0.21 0.01 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.01 260);
+  --muted: oklch(0.96 0.005 260);
+  --muted-foreground: oklch(0.52 0.015 260);
+  --border: oklch(0.9 0.008 260);
+  --input: oklch(0.93 0.008 260);
+  --primary: oklch(0.55 0.16 255);
+  --primary-foreground: oklch(0.99 0 0);
+  --accent: oklch(0.95 0.02 255);
+  --accent-foreground: oklch(0.31 0.05 260);
+  --destructive: oklch(0.58 0.2 25);
+  --destructive-foreground: oklch(0.99 0 0);
+  --success: oklch(0.6 0.14 155);
+  --warning: oklch(0.72 0.15 75);
+  --ring: oklch(0.55 0.16 255);
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: oklch(0.17 0.01 260);
+  --foreground: oklch(0.95 0.005 260);
+  --card: oklch(0.21 0.012 260);
+  --card-foreground: oklch(0.95 0.005 260);
+  --muted: oklch(0.26 0.012 260);
+  --muted-foreground: oklch(0.68 0.015 260);
+  --border: oklch(0.31 0.012 260);
+  --input: oklch(0.31 0.012 260);
+  --primary: oklch(0.68 0.15 255);
+  --primary-foreground: oklch(0.18 0.02 260);
+  --accent: oklch(0.29 0.03 260);
+  --accent-foreground: oklch(0.95 0.005 260);
+  --destructive: oklch(0.63 0.19 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --success: oklch(0.7 0.15 155);
+  --warning: oklch(0.78 0.15 75);
+  --ring: oklch(0.68 0.15 255);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-ring: var(--ring);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Prices and other figures line up column-wise when digits are tabular. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
