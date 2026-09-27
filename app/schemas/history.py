@@ -25,3 +25,28 @@ class CandleHistoryResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ArchiveRunResponse(BaseModel):
+    """
+    One EOD archive run — see GET /api/v1/history/archive/runs.
+
+    `rows_skipped` counts candles history already held: on a re-run or a
+    CronJob retry it is the whole day and `rows_archived` is zero, which is the
+    job doing exactly the right thing rather than a problem.
+    """
+
+    id: int
+    job_name: str
+    target_date: Optional[date] = None
+    started_at: datetime
+    finished_at: Optional[datetime] = None
+    status: str                       # running | success | failure
+    rows_archived: int
+    rows_skipped: int
+    rows_deleted: int
+    files_written: int
+    error: Optional[str] = None
+
+    class Config:
+        from_attributes = True

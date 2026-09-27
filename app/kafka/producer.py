@@ -350,6 +350,14 @@ async def _stream_exchange(exc_config: dict, producer: AIOKafkaProducer) -> None
     method      = exc_config["method"]
 
     credentials = EXCHANGE_CREDENTIALS.get(exchange_id, {})
+    # getattr on a name that comes from the database: validate it against
+    # ccxt's own list first so a bad row can only ever fail here, not resolve
+    # to some unrelated module attribute.
+    if exchange_id not in getattr(ccxtpro, "exchanges", []):
+        raise ValueError(
+            f"'{exchange_id}' is not a ccxt exchange id — refusing to start a stream for it. "
+            "Disable or fix the row in the `exchanges` table."
+        )
     exchange: ccxtpro.Exchange = getattr(ccxtpro, exchange_id)(credentials)
 
     logger.info(f"[{exchange_id}] symbols={symbols} method={method}")

@@ -112,11 +112,57 @@ AUTH_SECRET=
 AUTH_TOKEN_LIFETIME_SECONDS=3600
 ```
 
-`AUTH_SECRET` signs the session JWTs (FastAPI Users) — set a real random value in every non-dev deployment; the built-in default is dev-only. `AUTH_COOKIE_SECURE` defaults to `false` so plain-http local development works; set it to `true` in every real deployment (the production Kustomize overlay already does).
+`AUTH_SECRET` signs the session JWTs (FastAPI Users). The development fallback is a literal published in this repository, so anyone could forge a session with it — generate a real value (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`) for every non-dev deployment. `AUTH_COOKIE_SECURE` defaults to `false` so plain-http local development works; set it to `true` in every real deployment (the production Kustomize overlay already does). With `APP_ENV=production` the app refuses to start if either is wrong, rather than running on the insecure value.
+
+`APP_ENV=production` turns on strict start-up validation (`app/config.py`,
+`validate_config`): the app refuses to boot on the development `AUTH_SECRET`, on
+an empty one, with `AUTH_COOKIE_SECURE=false`, or with a wildcard/plain-http
+CORS origin. Every one of those used to fail open. See `.env.example` for the
+full, commented list of settings, including the rate limits and WebSocket caps.
 
 The markets to collect are not configured through environment variables. They're managed through `/api/v1/exchanges` (see [Markets](#markets)).
 
-The API creates the `candles` table on startup. The Flink job additionally reads `TIMESCALE_JDBC_URL`, `TIMESCALE_USER`, and `TIMESCALE_PASS`.
+## Database migrations
+
+The schema is owned by **Alembic**. The API verifies the database is at the
+migrations' head revision on start-up and refuses to run otherwise — it no
+longer creates or alters anything itself.
+
+```bash
+alembic upgrade head          # apply migrations (safe to re-run)
+alembic current               # what the database is at
+alembic history               # what exists
+alembic check                 # do the models match the migrations?
+```
+
+Adding a change:
+
+```bash
+# edit the models, then:
+alembic revision --autogenerate -m "what changed"
+# review the generated file — autogenerate does not see data migrations,
+# and it cannot know that an existing table needs deduplicating before a
+# unique constraint can be added
+alembic upgrade head
+```
+
+**Existing databases need no special handling.** The baseline revision detects
+tables the old `Base.metadata.create_all` start-up path already created and
+skips them, and `0002_legacy_alignment` then reconciles whatever that path left
+behind — the unified-feed columns, `NUMERIC(28,8)` prices, the multi-interval
+unique key, `candles.trace_id` and the `users` table. Run `alembic upgrade head`
+and the database converges, with no `alembic stamp` step. This replaces the
+manual `psql -f scripts/migrations/2026_09_unified_feed.sql` procedure; running
+that script first is still harmless.
+
+Deployment:
+
+- **Compose:** `docker compose --profile tools run --rm migrate`, or just
+  `alembic upgrade head` from the host venv.
+- **Kubernetes:** the `db-migrate` Job (`k8s/base/db-migrate-job.yaml`) applies
+  them; API pods block on an initContainer until the database reports head, so
+  a rollout never serves against a schema the code doesn't match. Re-apply the
+  Job on any release that ships a migration. The Flink job additionally reads `TIMESCALE_JDBC_URL`, `TIMESCALE_USER`, and `TIMESCALE_PASS`.
 These variables must be exported in the shell running the job; activating `env_flink` does not load `.env` automatically. When the job runs on the host with the included Docker Compose setup, use `jdbc:postgresql://localhost:5432/tradingmaster`. When it runs in a Compose container, use `jdbc:postgresql://postgres:5432/tradingmaster`.
 
 ## Running the API
@@ -302,9 +348,31 @@ The EOD archive job (candles -> candles_history + Parquet, `app/jobs/eod_archive
 
 ```bash
 source env/bin/activate
-python -m app.eod_runner              # archives yesterday (UTC)
-python -m app.eod_runner 2026-06-23   # backfill a specific date
+python -m app.eod_runner                        # archives yesterday (UTC)
+python -m app.eod_runner 2026-06-23             # backfill a specific date
+python -m app.eod_runner 2026-06-23 --dry-run   # report, change nothing
+python -m app.eod_runner 2026-06-23 --replace   # discard and re-archive the day
 ```
+
+**Re-running a date is safe.** `candles_history` has a unique key on
+`(exchange, ticker, interval, timestamp)` and the job inserts with
+`ON CONFLICT DO NOTHING`, so a manual re-run, a CronJob `backoffLimit` retry and
+the local overlay's every-10-minutes schedule are all no-ops after the first
+success. Before that key existed, each of them appended a complete second copy
+of the day.
+
+`--replace` is only for re-archiving after correcting source data. It refuses to
+run when the day's candles have already aged out of the hot table, because it
+would then delete the archive and have nothing to rebuild it from.
+
+Exit codes: `0` success, `1` failure, `2` another run holds the lock, `3`
+`--replace` refused. A concurrent run is stopped by a PostgreSQL advisory lock,
+so the CronJob and a manual backfill cannot double up.
+
+Each run writes a row to `job_runs`, which the API exports to Prometheus and
+serves at `GET /api/v1/history/archive/runs` — the scheduled job runs in its own
+short-lived process that Prometheus never scrapes, so this is the only way its
+outcome is visible.
 
 Schedule it with cron, a systemd timer, or — in Kubernetes — the `eod-archive` CronJob in `k8s/base/eod-cronjob.yaml` (defaults to `30 23 * * *`, i.e. 23:30 UTC — 30 minutes before the day rolls over, giving `backoffLimit` retries room to finish before midnight; reuses the FastAPI image with `python -m app.eod_runner` as its command). The schedule is parametrized per environment via a Kustomize patch on `spec.schedule` rather than hardcoded — `k8s/overlays/local/eod-patch.yaml` overrides it to run every 10 minutes for local testing, and a production overlay can set its own cadence the same way. For ad-hoc runs without waiting on the schedule, `POST /api/v1/history/archive/{target_date}` (in `app/routers/history.py`) still triggers a background run through the API.
 
@@ -316,6 +384,14 @@ docker compose up -d prometheus grafana jaeger loki promtail
 
 - **Metrics**: Prometheus at `http://localhost:9090` scrapes `/metrics` on the FastAPI app (`prometheus-client`, see `app/metrics.py`) and Flink's own JVM-side Prometheus reporter on port 9250. Grafana at `http://localhost:3000` (`admin`/`admin` locally) auto-provisions both as datasources plus a starter "TradingMaster Overview" dashboard.
 - **Tracing**: the FastAPI app and Kafka producer export spans via OpenTelemetry OTLP to Jaeger at `http://localhost:16686`. The Flink job cannot hold per-record spans (it runs Table API/SQL with no Python callback in the hot path) — instead it extracts the W3C `traceparent` header the producer attaches to each Kafka message and writes the trace id into `candles.trace_id`, so a persisted row can be correlated back to its producing trace with `SELECT * FROM candles WHERE trace_id = '<id>'`.
+- **Alerting**: nine rules in `observability/prometheus/rules/tradingmaster.yml`
+  cover a failed or stale end-of-day archive, a stalled producer, sustained FX
+  peg fallbacks, a high API error rate and live-stream message drops. Prometheus
+  evaluates them and sends to Alertmanager at <http://localhost:9093>. The
+  receiver is deliberately a no-op — point it at email or Slack by editing
+  `observability/alertmanager/alertmanager.yml` (Compose) or the
+  `alertmanager-config` ConfigMap (Kubernetes); no code change is needed.
+  Validate with `promtool check config observability/prometheus/prometheus.yml`.
 - **Logs**: every Python entrypoint (`app/main.py`, `app/producer_runner.py`, `app/flink_jobs/candle_builder.py`) emits structured JSON logs (`app/logging_config.py`), tagged with `trace_id`/`span_id` when an OTel span is active. Promtail ships them to Loki, browsable from Grafana Explore; a `trace_id` field in a log line links out to the matching Jaeger trace.
   Promtail (in this Compose setup) only tails **containers**, via the Docker socket. The FastAPI app and standalone producer run on the host by default (`uvicorn app.main:app`, `python -m app.producer_runner`), so their JSON logs land on your terminal / redirected file, not in Loki — only the containerized `flink` job's logs show up there locally. In Kubernetes this gap doesn't exist: Promtail runs as a DaemonSet and picks up every pod, FastAPI included.
 
@@ -331,13 +407,11 @@ Tests mock Kafka and exchange connections. API tests use temporary SQLite and do
 
 ## Current limitations and operational notes
 
-- **Existing databases need a one-off migration** for the multi-interval key and the unified feed (new columns, `NUMERIC(28,8)` prices, legacy tickers renamed to `BASE/USD` at a 1:1 rate). The script is idempotent:
-  `psql "$DATABASE_URL" -f scripts/migrations/2026_09_unified_feed.sql`
+- **Existing databases** are brought up to date by `alembic upgrade head` (see [Database migrations](#database-migrations)) — including the multi-interval key, the unified-feed columns, `NUMERIC(28,8)` prices, `candles.trace_id` and the `users` table. The old `scripts/migrations/2026_09_unified_feed.sql` is superseded and kept only so older runbooks don't dead-end.
 - Only USD-equivalent markets (USD/USDT/USDC quotes) can be collected: the unified feed publishes every price in USD.
 - If no fresh FX rate is available (startup, or a Kraken outage longer than `FX_MAX_AGE_SECONDS`), USDT/USDC prices are converted at the 1:1 peg. `fx_rate_fallback_total` counts these conversions.
-- Running `app.producer_runner` alongside the API can create duplicate exchange streams.
-- Database creation happens at startup; Alembic is installed but migrations are not configured.
-- `candles.trace_id` (added for Jaeger correlation) only appears via `Base.metadata.create_all`, which creates missing tables but never alters existing ones — an existing local `candles` table needs a manual `ALTER TABLE candles ADD COLUMN trace_id VARCHAR(32)`, or drop the dev volume and let it rebuild.
+- Running `app.producer_runner` alongside the API can create duplicate exchange streams. The same applies to running the API with more than one replica, since it starts a producer in its own lifespan — see finding A04-5 in [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md).
 - Jaeger and Loki run with in-memory/ephemeral storage in this compose/k8s setup — traces and logs don't survive a restart. Fine for local dev; production needs real storage backends (Elasticsearch/Cassandra for Jaeger, a persistent volume + retention config for Loki), not implemented here.
+- Rate limiting and the live-stream consumer hub are both **per process**, so with several API replicas the effective rate limit is roughly N times the configured value. Adequate for abuse protection, not for quotas.
 - The UI has no screen for managing exchanges and symbols yet — that is API-only (see [Markets](#markets)). It's the first item on the UI backlog in the business summary.
 - Keep `.env`, credentials, passwords, `node_modules/`, `frontend/dist/` and generated database files out of version control.

@@ -1,3 +1,13 @@
+# Direct dependencies, human-edited. This file stays readable and is the input
+# to the lock.
+#
+# **requirements.lock is what gets installed** — it pins this file's full
+# resolved closure with hashes, and the Docker image installs from it. After
+# changing anything here, regenerate it (see the header of requirements.lock).
+#
+#   pip install --require-hashes -r requirements.lock    # exact, verified
+#   pip install -r requirements.txt                      # loose, dev only
+
 # ── API ───────────────────────────────────────────────────────────────────────
 fastapi>=0.136.0
 uvicorn[standard]>=0.34.0

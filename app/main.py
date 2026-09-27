@@ -23,9 +23,14 @@ from app.auth import (
     csrf_protect,
     fastapi_users,
 )
+from app.jobs.job_metrics import refresh_job_metrics
+from app.kafka.stream_hub import stream_hub
 from app.logging_config import setup_json_logging
+from app.middleware.rate_limit import rate_limit_middleware
+from app.middleware.security_headers import security_headers_middleware
 from app.metrics import http_request_duration_seconds, http_requests_total
-from app.models.database import engine, Base, AsyncSessionLocal
+from app.models.database import engine, AsyncSessionLocal
+from app.models.schema_check import assert_schema_at_head
 from app.models.seeder import seed_exchanges
 from app.kafka.producer import run_producer
 from app.routers import exchanges, history, market
@@ -40,9 +45,11 @@ setup_tracing(config.OTEL_SERVICE_NAME, config.OTEL_EXPORTER_OTLP_ENDPOINT, enab
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     # ── Startup ───────────────────────────────────────────────────────────────
-    logger.info("Creating database tables if not exist...")
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    # Migrations own the schema (`alembic upgrade head`); the API only checks it.
+    # This used to be Base.metadata.create_all, which never altered an existing
+    # table — and which all three production replicas ran at once.
+    logger.info("Verifying database schema...")
+    await assert_schema_at_head()
 
     # Seed default exchange/symbol config on first run
     logger.info("Seeding exchange and symbol config...")
@@ -62,6 +69,8 @@ async def lifespan(application: FastAPI):
 
     # ── Shutdown ──────────────────────────────────────────────────────────────
     logger.info("Shutting down...")
+    # Stop the shared live-stream consumers before the event loop goes away.
+    await stream_hub.close()
     producer_task.cancel()
     try:
         await asyncio.gather(producer_task, return_exceptions=True)
@@ -77,24 +86,36 @@ app = FastAPI(
     version="1.0.0",
     description="Real-time crypto candle data from Binance, Kraken and Coinbase via Kafka + Flink",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc"
+    # Interactive docs are useful for a public data API, but they also publish
+    # the full endpoint surface — the production overlay sets DOCS_ENABLED=false.
+    docs_url="/docs" if config.DOCS_ENABLED else None,
+    redoc_url="/redoc" if config.DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if config.DOCS_ENABLED else None,
 )
 
-# Cross-origin browser access — only used when the UI isn't served from here.
-if config.CORS_ALLOW_ORIGINS:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=config.CORS_ALLOW_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# ── Middleware ────────────────────────────────────────────────────────────────
+# Starlette builds the stack from `reversed(user_middleware)` and each
+# registration inserts at the front, so the LAST one registered here ends up
+# OUTERMOST at request time. Registering in the order below gives, from the
+# outside in:
+#
+#   security headers → CORS → metrics → rate limit → CSRF → router
+#
+# CORS has to sit *outside* CSRF. CORSMiddleware adds
+# Access-Control-Allow-Origin to the response on the way back out, so it only
+# sees a response produced deeper in the stack. With CORS innermost — which is
+# what the old registration order actually produced, despite a comment claiming
+# the opposite — a CSRF 403 (and now a 429) carried no CORS headers at all, and
+# a cross-origin UI saw an opaque network error instead of the real reason.
+#
+# Security headers are outermost so they land on every response, including the
+# ones short-circuited by the layers below.
 
-# Cookie-authenticated writes must prove they came from our own UI (see
-# app/auth/csrf.py). Added after CORS so a blocked request still gets CORS
-# headers, and bearer-token clients are never affected.
+# Cookie-authenticated writes must prove they came from our own UI (app/auth/csrf.py).
 app.middleware("http")(csrf_protect)
+
+# Brute-force and abuse protection, outside CSRF so rejected writes are counted.
+app.middleware("http")(rate_limit_middleware)
 
 FastAPIInstrumentor.instrument_app(app)
 SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine)
@@ -105,10 +126,33 @@ async def metrics_middleware(request: Request, call_next):
     start = time.perf_counter()
     response = await call_next(request)
     duration = time.perf_counter() - start
-    path = request.url.path
+
+    # The matched route template ("/api/v1/market/candles/{ticker}"), not the
+    # raw URL. Labelling by raw path gave every distinct URL — including every
+    # 404 an anonymous client cared to invent — its own Prometheus time series,
+    # which grows without bound and bloats the /metrics response.
+    route = request.scope.get("route")
+    path = getattr(route, "path_format", None) or getattr(route, "path", None) or "<unmatched>"
+
     http_requests_total.labels(method=request.method, path=path, status_code=response.status_code).inc()
     http_request_duration_seconds.labels(method=request.method, path=path).observe(duration)
     return response
+
+
+# Cross-origin browser access — only used when the UI isn't served from here.
+# Registered after the layers it must wrap (see the ordering note above).
+if config.CORS_ALLOW_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.CORS_ALLOW_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+# Registered last, so it wraps everything above and sets headers even on a
+# response short-circuited by the rate limiter or the CSRF check.
+app.middleware("http")(security_headers_middleware)
 
 
 app.include_router(market.router)
@@ -157,6 +201,11 @@ if config.PROMETHEUS_METRICS_ENABLED:
     @app.get("/metrics", include_in_schema=False)
     @app.get("/metrics/", include_in_schema=False)
     async def metrics() -> Response:
+        # The EOD archive runs in its own short-lived process that Prometheus
+        # never scrapes, so its outcome is read from the job_runs table here.
+        # refresh_job_metrics never raises — a database problem must not cost
+        # us every other metric on the endpoint.
+        await refresh_job_metrics()
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

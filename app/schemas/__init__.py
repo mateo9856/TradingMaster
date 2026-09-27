@@ -12,10 +12,11 @@ from .exchange import (
     SymbolResponse,
     SymbolSkipped,
 )
-from .history import CandleHistoryResponse
+from .history import ArchiveRunResponse, CandleHistoryResponse
 
 __all__ = [
     "ApiResponse",
+    "ArchiveRunResponse",
     "CandleBase",
     "CandleCreate",
     "CandleResponse",

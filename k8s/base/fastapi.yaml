@@ -13,11 +13,43 @@ spec:
       labels:
         app: fastapi
     spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # The schema is applied by the db-migrate Job, never by an API pod: with
+      # replicas > 1, per-pod migrations would race on DDL. Each pod just waits
+      # until the database reports the head revision, so a rollout can't start
+      # serving against a schema the code doesn't match.
+      initContainers:
+        - name: wait-for-migrations
+          image: tradingmaster-api:latest
+          command: ["python", "-m", "app.models.schema_check", "--wait", "--timeout", "300"]
+          envFrom:
+            - secretRef:
+                name: tradingmaster-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
       containers:
         - name: fastapi
           image: tradingmaster-api:latest
           ports:
             - containerPort: 8000
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           envFrom:
             - secretRef:
                 name: tradingmaster-secrets

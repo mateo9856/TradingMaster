@@ -5,67 +5,261 @@
   "schemaVersion": 39,
   "version": 1,
   "refresh": "10s",
-  "time": { "from": "now-1h", "to": "now" },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "panels": [
     {
       "id": 1,
       "title": "HTTP request rate",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
       "targets": [
-        { "expr": "sum(rate(http_requests_total[5m])) by (path)", "legendFormat": "{{path}}" }
+        {
+          "expr": "sum(rate(http_requests_total[5m])) by (path)",
+          "legendFormat": "{{path}}"
+        }
       ]
     },
     {
       "id": 2,
       "title": "HTTP request duration (p95)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, path))", "legendFormat": "{{path}}" }
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "{{path}}"
+        }
       ]
     },
     {
       "id": 3,
       "title": "Kafka messages produced (rate by exchange)",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
       "targets": [
-        { "expr": "sum(rate(kafka_messages_produced_total[5m])) by (exchange)", "legendFormat": "{{exchange}}" }
+        {
+          "expr": "sum(rate(kafka_messages_produced_total[5m])) by (exchange)",
+          "legendFormat": "{{exchange}}"
+        }
       ]
     },
     {
       "id": 4,
       "title": "Kafka reconnects",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
       "targets": [
-        { "expr": "sum(rate(kafka_reconnects_total[15m])) by (exchange)", "legendFormat": "{{exchange}}" }
+        {
+          "expr": "sum(rate(kafka_reconnects_total[15m])) by (exchange)",
+          "legendFormat": "{{exchange}}"
+        }
       ]
     },
     {
       "id": 5,
       "title": "Active WebSocket connections",
       "type": "stat",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
       "targets": [
-        { "expr": "sum(websocket_active_connections)" }
+        {
+          "expr": "sum(websocket_active_connections)"
+        }
       ]
     },
     {
       "id": 6,
       "title": "EOD job duration",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
-      "datasource": { "type": "prometheus", "uid": "Prometheus" },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
       "targets": [
-        { "expr": "histogram_quantile(0.95, sum(rate(eod_job_duration_seconds_bucket[1d])) by (le))" }
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(eod_job_duration_seconds_bucket[1d])) by (le))"
+        }
       ]
+    },
+    {
+      "id": 7,
+      "type": "row",
+      "title": "End-of-day archive (last 7 days)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 8,
+      "title": "Time since last successful archive",
+      "type": "stat",
+      "gridPos": {
+        "h": 6,
+        "w": 6,
+        "x": 0,
+        "y": 25
+      },
+      "targets": [
+        {
+          "expr": "time() - eod_last_success_timestamp_seconds",
+          "legendFormat": "age",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 90000
+              },
+              {
+                "color": "red",
+                "value": 93600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "description": "Wall-clock age of the newest successful run. The archive runs daily at 23:30 UTC, so anything past ~25h means a run was missed. Exported by the API from the job_runs table \u2014 the CronJob pod is never scraped."
+    },
+    {
+      "id": 9,
+      "title": "Archive runs by outcome",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 6,
+        "w": 9,
+        "x": 6,
+        "y": 25
+      },
+      "targets": [
+        {
+          "expr": "increase(eod_job_runs_total[24h])",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "'skipped' is not a problem: another run held the lock, or a --replace was refused because the day's source candles were already cleaned up."
+    },
+    {
+      "id": 10,
+      "title": "Rows archived vs. already present",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 6,
+        "w": 9,
+        "x": 15,
+        "y": 25
+      },
+      "targets": [
+        {
+          "expr": "increase(eod_rows_archived_total[24h])",
+          "legendFormat": "archived",
+          "refId": "A"
+        },
+        {
+          "expr": "increase(eod_rows_skipped_duplicate_total[24h])",
+          "legendFormat": "already in history",
+          "refId": "B"
+        },
+        {
+          "expr": "increase(eod_rows_deleted_total[24h])",
+          "legendFormat": "cleaned from hot table",
+          "refId": "C"
+        }
+      ],
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "description": "A re-run or a CronJob retry shows up entirely as 'already in history' with zero archived \u2014 that is the idempotent path working, not a fault."
     }
-  ]
+  ],
+  "description": "Pipeline health plus end-of-day archive status. Alert rules covering the same signals live in observability/prometheus/rules/tradingmaster.yml."
 }

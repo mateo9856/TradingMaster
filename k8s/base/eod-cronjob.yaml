@@ -18,18 +18,44 @@ spec:
   # k8s/overlays/local/eod-patch.yaml for an example).
   schedule: "30 23 * * *"
   concurrencyPolicy: Forbid
+  # If the controller is down at the scheduled minute, still run when it comes
+  # back — but only if it's within the hour, so a long outage doesn't fire a
+  # burst of catch-up runs at once.
+  startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
     spec:
+      # Safe now that the archive is idempotent: a retry re-reads the same day
+      # and skips whatever the failed attempt already wrote. Before the unique
+      # key on candles_history, these two retries were the most reliable way to
+      # get three copies of a day into history.
       backoffLimit: 2
+      # Give up rather than retry forever into the next day's run.
+      activeDeadlineSeconds: 7200
+      ttlSecondsAfterFinished: 86400
       template:
+        metadata:
+          labels:
+            # Needed by k8s/base/network-policy.yaml to allow this pod through
+            # to PostgreSQL — without a label it matches no `from` selector and
+            # the archive silently cannot reach the database.
+            app: eod-archive
         spec:
           restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: eod-archive
               image: tradingmaster-api:latest
               command: ["python", "-m", "app.eod_runner"]
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop: ["ALL"]
               envFrom:
                 - secretRef:
                     name: tradingmaster-secrets

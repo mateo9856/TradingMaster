@@ -1,18 +1,24 @@
-import json
+import asyncio
 import logging
 from typing import List, Optional
 from urllib.parse import unquote
 
-from aiokafka import AIOKafkaConsumer
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_active_user
-from app.config import KAFKA_BOOTSTRAP_SERVERS
-from app.helpers.intervals import SUPPORTED_INTERVALS
-from app.helpers.markets import topic_ticker, unified_ticker
-from app.metrics import websocket_active_connections
+from app.config import (
+    MARKET_MAX_PAGE_SIZE,
+    WS_HEARTBEAT_SECONDS,
+    WS_MAX_CONNECTIONS,
+    WS_MAX_CONNECTIONS_PER_IP,
+)
+from app.helpers.intervals import SUPPORTED_INTERVALS, validate_interval
+from app.helpers.markets import source_ticker_candidates, topic_ticker, unified_ticker
+from app.kafka.stream_hub import stream_hub
+from app.metrics import websocket_active_connections, websocket_connections_rejected_total
+from app.middleware.rate_limit import check_websocket_connect, client_key
 from app.models.candle import Candle
 from app.models.database import AsyncSessionLocal, get_db
 from app.models.exchange import Exchange, Symbol
@@ -24,12 +30,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(
     prefix="/api/v1/market",
     tags=["market"],
-    responses={ 
-               404: {"description": "Not found"},
-               200: {"description": "Successful response"},
-               500: {"description": "Internal server error"}
+    responses={
+        404: {"description": "Not found"},
+        200: {"description": "Successful response"},
+        500: {"description": "Internal server error"},
     },
 )
+
+# Close code 1013 ("try again later") tells a browser this is a temporary
+# capacity problem, distinct from 1008 ("no such market"), which the UI treats
+# as permanent and does not retry (frontend/src/hooks/useLiveCandles.ts).
+WS_TRY_AGAIN_LATER = 1013
+
+# Live connections in this process, for the caps below.
+_open_connections: int = 0
+_connections_per_ip: dict[str, int] = {}
+
 
 def resolve_ticker(ticker: str) -> str:
     """
@@ -39,6 +55,14 @@ def resolve_ticker(ticker: str) -> str:
     """
     try:
         return unified_ticker(unquote(ticker))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
+
+
+def resolve_interval(interval: str) -> str:
+    """422 for an unsupported interval, rather than an empty result and a 404."""
+    try:
+        return validate_interval(interval)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
 
@@ -91,7 +115,8 @@ async def get_candles(
     ticker: str,
     exchange: Optional[str] = None,   # optional filter by exchange
     interval: str = "1m",
-    limit: int = 100,
+    limit: int = Query(100, ge=1, le=MARKET_MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -100,36 +125,38 @@ async def get_candles(
     Optionally filter by exchange and interval.
     """
     ticker_upper = resolve_ticker(ticker)
- 
+    interval = resolve_interval(interval)
+
     query = (
         select(Candle)
         .where(Candle.ticker == ticker_upper)
         .where(Candle.interval == interval)
         .order_by(Candle.timestamp.desc())
+        .offset(offset)
         .limit(limit)
     )
- 
+
     if exchange:
         query = query.where(Candle.exchange == exchange.lower())
- 
+
     result = await db.execute(query)
     candles = result.scalars().all()
 
     if not candles:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Ticker {ticker_upper} nie został znaleziony w platformie danych.",
+            detail=f"No candles found for {ticker_upper} at interval {interval}.",
         )
- 
+
     return ApiResponse(
         status="success",
         message=f"Found {len(candles)} candle(s) for {ticker_upper}",
         data=[CandleResponse.model_validate(c) for c in candles],
     )
- 
- 
+
+
 # ── REST: POST candle ─────────────────────────────────────────────────────────
- 
+
 @router.post(
     "/candles",
     response_model=ApiResponse[CandleResponse],
@@ -149,13 +176,20 @@ async def create_candle(
     await db.commit()
     await db.refresh(db_candle)
 
+    # Who inserted a price matters: every active user can do this, and the
+    # numbers are the product (see the admin-role item in the security audit).
+    logger.info(
+        f"Candle inserted manually by user {user.id}: "
+        f"{db_candle.exchange} {db_candle.ticker} {db_candle.interval} @ {db_candle.timestamp}"
+    )
+
     return ApiResponse(
         status="success",
         message="Candle created successfully",
         data=CandleResponse.model_validate(db_candle),
     )
- 
- 
+
+
 # ── WebSocket: live candles from Kafka ───────────────────────────────────────
 
 async def _resolve_topics(db: AsyncSession, ticker: str, exchange: Optional[str] = None) -> List[str]:
@@ -163,29 +197,55 @@ async def _resolve_topics(db: AsyncSession, ticker: str, exchange: Optional[str]
     Kafka topics carrying `ticker` — one per enabled exchange (optionally just
     `exchange`) that has an enabled market for it, according to the database.
     Empty for unknown or unsupported markets.
+
+    The candidate source tickers are filtered in SQL. This previously loaded
+    every enabled symbol row and compared unified tickers in Python, so each
+    WebSocket connection scanned the whole symbols⋈exchanges join.
     """
     try:
         unified = unified_ticker(ticker)
+        candidates = source_ticker_candidates(unified)
     except ValueError:
         return []
 
     query = (
-        select(Exchange.name, Symbol.ticker)
+        select(Exchange.name)
         .join(Symbol, Symbol.exchange_id == Exchange.id)
         .where(Exchange.enabled == True, Symbol.enabled == True)  # noqa: E712
+        .where(Symbol.ticker.in_(candidates))
+        .distinct()
     )
     if exchange:
         query = query.where(Exchange.name == exchange.lower())
 
     result = await db.execute(query)
-    names = set()
-    for name, source_ticker in result.all():
-        try:
-            if unified_ticker(source_ticker) == unified:
-                names.add(name)
-        except ValueError:
-            continue
-    return [f"{name}.{topic_ticker(unified)}.candles" for name in sorted(names)]
+    names = sorted(result.scalars().all())
+    return [f"{name}.{topic_ticker(unified)}.candles" for name in names]
+
+
+def _admit(key: str) -> tuple[bool, str]:
+    """Take a connection slot, or explain why not. Caller must call _release."""
+    global _open_connections
+
+    if _open_connections >= WS_MAX_CONNECTIONS:
+        return False, "server_capacity"
+    if _connections_per_ip.get(key, 0) >= WS_MAX_CONNECTIONS_PER_IP:
+        return False, "per_client_capacity"
+
+    _open_connections += 1
+    _connections_per_ip[key] = _connections_per_ip.get(key, 0) + 1
+    return True, ""
+
+
+def _release(key: str) -> None:
+    global _open_connections
+
+    _open_connections = max(_open_connections - 1, 0)
+    remaining = _connections_per_ip.get(key, 0) - 1
+    if remaining > 0:
+        _connections_per_ip[key] = remaining
+    else:
+        _connections_per_ip.pop(key, None)
 
 
 @router.websocket("/ws/live/{ticker}")
@@ -193,51 +253,103 @@ async def live_candles(
     websocket: WebSocket,
     ticker: str,
     exchange: Optional[str] = None,
+    interval: Optional[str] = None,
 ):
     """
     WebSocket endpoint — streams live candles for a ticker in real time.
 
     Connect:  ws://localhost:8000/api/v1/market/ws/live/BTCUSD
-    Optional: ws://localhost:8000/api/v1/market/ws/live/BTCUSD?exchange=binance
+    Optional: ?exchange=binance  — one exchange only
+              ?interval=1m       — one candle length only (filtered server-side)
 
     BTCUSD, BTCUSDT and BTC-USDT all subscribe to the unified BTC/USD market.
     Each message is a unified-format candle (USD prices as 8-decimal strings),
-    identical for every exchange. Unknown markets are closed with code 1008.
+    identical for every exchange.
+
+    Close codes: 1008 unknown market (permanent — don't retry),
+                 1013 at capacity or rate-limited (temporary — retry later).
+
+    Subscribers share one Kafka consumer per topic (app/kafka/stream_hub.py),
+    so a thousand viewers of one market cost one consumer, not a thousand.
     """
-    await websocket.accept()
+    client = client_key(websocket)
 
-    # Short-lived session — don't hold a pooled DB connection for the socket's lifetime.
-    async with AsyncSessionLocal() as db:
-        topics = await _resolve_topics(db, ticker, exchange)
-
-    if not topics:
-        logger.info(f"WebSocket rejected — no enabled market for {ticker} (exchange={exchange})")
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason=f"Unknown market {ticker}")
+    allowed, retry_after = check_websocket_connect(websocket)
+    if not allowed:
+        websocket_connections_rejected_total.labels(reason="rate_limited").inc()
+        await websocket.close(code=WS_TRY_AGAIN_LATER, reason=f"Rate limited; retry in {retry_after}s")
         return
 
-    websocket_active_connections.labels(endpoint="live_candles").inc()
-    logger.info(f"WebSocket client connected — topics: {topics}")
+    admitted, refusal = _admit(client)
+    if not admitted:
+        websocket_connections_rejected_total.labels(reason=refusal).inc()
+        logger.warning(f"Live stream refused ({refusal}) — {_open_connections} open")
+        await websocket.close(code=WS_TRY_AGAIN_LATER, reason="Too many live connections")
+        return
 
-    consumer = AIOKafkaConsumer(
-        *topics,
-        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-        group_id=None,          # None = no consumer group, always reads latest
-        auto_offset_reset="latest",
-    )
-
+    subscription = None
     try:
-        await consumer.start()
-        async for message in consumer:
-            payload = json.loads(message.value.decode("utf-8"))
-            await websocket.send_json(payload)
+        await websocket.accept()
+
+        # Short-lived session — don't hold a pooled DB connection for the socket's lifetime.
+        async with AsyncSessionLocal() as db:
+            topics = await _resolve_topics(db, ticker, exchange)
+
+        if not topics:
+            # Deliberately not echoing the client's raw ticker back.
+            websocket_connections_rejected_total.labels(reason="unknown_market").inc()
+            logger.debug(f"WebSocket rejected — no enabled market (exchange={exchange})")
+            await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unknown market")
+            return
+
+        wanted_interval = None
+        if interval:
+            try:
+                wanted_interval = validate_interval(interval)
+            except ValueError:
+                websocket_connections_rejected_total.labels(reason="unknown_interval").inc()
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unsupported interval")
+                return
+
+        websocket_active_connections.labels(endpoint="live_candles").inc()
+        # DEBUG, not INFO: this endpoint is unauthenticated, so an anonymous
+        # client could otherwise drive unbounded log volume into Loki.
+        logger.debug(f"WebSocket connected — topics: {topics}")
+
+        subscription = await stream_hub.subscribe(topics)
+        await _pump(websocket, subscription, wanted_interval)
 
     except WebSocketDisconnect:
-        logger.info(f"WebSocket client disconnected from {ticker}")
-
-    except Exception as e:
-        logger.error(f"WebSocket error for {ticker}: {e}")
-        await websocket.close(code=1011)
-
+        logger.debug("WebSocket client disconnected")
+    except Exception as error:
+        logger.error(f"WebSocket error: {error!r}")
+        try:
+            await websocket.close(code=1011)
+        except RuntimeError:
+            pass        # already closed
     finally:
-        websocket_active_connections.labels(endpoint="live_candles").dec()
-        await consumer.stop()
+        if subscription is not None:
+            websocket_active_connections.labels(endpoint="live_candles").dec()
+            await stream_hub.unsubscribe(subscription)
+        _release(client)
+
+
+async def _pump(websocket: WebSocket, subscription, wanted_interval: Optional[str]) -> None:
+    """
+    Forward candles to the socket, with a heartbeat.
+
+    The heartbeat is what reclaims a half-open connection: without traffic in
+    either direction, a client that vanished without a close frame held its
+    slot against the connection cap indefinitely.
+    """
+    while True:
+        try:
+            payload = await asyncio.wait_for(subscription.queue.get(), timeout=WS_HEARTBEAT_SECONDS)
+        except asyncio.TimeoutError:
+            # Quiet market — prove the socket is still alive. Raises if it isn't.
+            await websocket.send_json({"type": "heartbeat"})
+            continue
+
+        if wanted_interval and payload.get("interval") != wanted_interval:
+            continue
+        await websocket.send_json(payload)

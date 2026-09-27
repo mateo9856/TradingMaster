@@ -24,7 +24,10 @@ USD_EQUIVALENT_QUOTES: tuple[str, ...] = ("USDT", "USDC", "USD")
 QUOTE_PREFERENCE: tuple[str, ...] = ("USD", "USDT", "USDC")
 
 _SEPARATORS = re.compile(r"[/\-_:]")
-_BASE_PATTERN = re.compile(r"^[A-Z0-9]+$")
+# Length-bounded on purpose: an unbounded base passed validation and was
+# interpolated straight into a Kafka topic name.
+MAX_BASE_LENGTH = 20
+_BASE_PATTERN = re.compile(rf"^[A-Z0-9]{{1,{MAX_BASE_LENGTH}}}$")
 
 
 def split_symbol(symbol: str) -> tuple[str, str]:
@@ -72,3 +75,16 @@ def unified_ticker(symbol: str) -> str:
 def topic_ticker(symbol: str) -> str:
     """Kafka topic segment for a market — the unified ticker without separator, e.g. "BTCUSD"."""
     return unified_ticker(symbol).replace("/", "")
+
+
+def source_ticker_candidates(symbol: str) -> list[str]:
+    """
+    Every spelling an exchange might list for this market, e.g. BTC/USD →
+    ["BTC/USD", "BTC/USDT", "BTC/USDC"].
+
+    Lets a lookup filter on the `symbols` table in SQL instead of loading every
+    enabled market and comparing unified tickers in Python — which is what
+    resolving a WebSocket topic used to do, once per connection.
+    """
+    base, _ = split_symbol(symbol)
+    return [f"{base}/{quote}" for quote in USD_EQUIVALENT_QUOTES]

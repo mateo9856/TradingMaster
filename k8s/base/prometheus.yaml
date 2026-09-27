@@ -7,6 +7,13 @@ data:
   prometheus.yml: |
     global:
       scrape_interval: 15s
+      evaluation_interval: 15s
+    rule_files:
+      - /etc/prometheus/rules/*.yml
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ["alertmanager-service:9093"]
     scrape_configs:
       - job_name: fastapi
         metrics_path: /metrics
@@ -15,6 +22,162 @@ data:
       - job_name: flink
         static_configs:
           - targets: ["flink-candle-builder-service:9250"]
+
+---
+# Same rules as observability/prometheus/rules/tradingmaster.yml — keep the
+# two in step; promtool validates the file, this ConfigMap is what the
+# cluster reads.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: tradingmaster
+data:
+  tradingmaster.yml: |
+    # Alert rules for TradingMaster.
+    #
+    # Before this file the repo had no alerting at all: no rule_files, no
+    # Alertmanager. Every problem — a failed nightly archive, a stalled exchange
+    # feed, a database error storm — was only visible to whoever happened to open
+    # Grafana.
+    #
+    # Check with:  promtool check rules observability/prometheus/rules/tradingmaster.yml
+    groups:
+
+      # ── Nightly archive ────────────────────────────────────────────────────────
+      - name: tradingmaster-eod-archive
+        rules:
+          - alert: EodArchiveFailed
+            # "skipped" is deliberately excluded: it means another run held the
+            # lock, or a --replace was refused. Neither is a broken job.
+            expr: increase(eod_job_runs_total{status="failure"}[1h]) > 0
+            for: 5m
+            labels:
+              severity: critical
+              component: eod-archive
+            annotations:
+              summary: "The end-of-day archive failed"
+              description: >-
+                An EOD archive run ended in failure in the last hour. Candles stay in
+                the hot table until a run archives them, so nothing is lost yet — but
+                the day has no Parquet export and history is incomplete.
+                Check GET /api/v1/history/archive/runs for the error, then re-run
+                `python -m app.eod_runner <date>` (re-running is safe).
+
+          - alert: EodArchiveStale
+            # The job runs daily at 23:30 UTC; 26h allows a late run plus retries.
+            expr: >-
+              time() - eod_last_success_timestamp_seconds > 26 * 3600
+              or absent(eod_last_success_timestamp_seconds)
+            for: 30m
+            labels:
+              severity: critical
+              component: eod-archive
+            annotations:
+              summary: "No successful archive run in over 26 hours"
+              description: >-
+                The archive has not completed successfully since
+                {{ $value | humanizeDuration }} ago. The CronJob may not be firing at
+                all — a failing run alerts as EodArchiveFailed, so silence here means
+                nothing is running. Hot candles are retained for 7 days, so there is
+                about a week to fix it before data is at risk.
+
+          - alert: EodArchiveWroteNothing
+            expr: >-
+              increase(eod_job_runs_total{status="success"}[25h]) > 0
+              and increase(eod_rows_archived_total[25h]) == 0
+              and increase(eod_rows_skipped_duplicate_total[25h]) == 0
+            for: 1h
+            labels:
+              severity: warning
+              component: eod-archive
+            annotations:
+              summary: "The archive ran but found no candles"
+              description: >-
+                An archive run succeeded without seeing a single candle for its
+                target day. That usually means collection stopped, not that the
+                archive is broken — check the producer and Kafka first.
+
+      # ── Collection pipeline ────────────────────────────────────────────────────
+      - name: tradingmaster-pipeline
+        rules:
+          - alert: CandleProductionStalled
+            expr: sum(rate(kafka_messages_produced_total[15m])) == 0
+            for: 15m
+            labels:
+              severity: critical
+              component: producer
+            annotations:
+              summary: "No candles produced to Kafka for 15 minutes"
+              description: >-
+                Every exchange stream has gone quiet. With 30-second candles on ~50
+                markets this should never happen while the producer is healthy.
+                Check the producer's exchange connections and Kafka.
+
+          - alert: ExchangeReconnectLoop
+            expr: rate(kafka_reconnects_total[15m]) * 300 > 5
+            for: 15m
+            labels:
+              severity: warning
+              component: producer
+            annotations:
+              summary: "{{ $labels.exchange }} is reconnecting repeatedly"
+              description: >-
+                More than 5 reconnects per 5 minutes. Candles built from trades lose
+                their in-progress window on every reconnect, so this shows up as gaps.
+
+          - alert: FxRatePegFallbackSustained
+            expr: sum(rate(fx_rate_fallback_total[30m])) > 0
+            for: 30m
+            labels:
+              severity: warning
+              component: fx
+            annotations:
+              summary: "USD conversion has been falling back to the 1:1 peg"
+              description: >-
+                No fresh USDT/USDC rate for over 30 minutes, so published USD prices
+                are approximations (normally within 0.1%). Check the reference
+                exchange's ticker stream.
+
+      # ── API ────────────────────────────────────────────────────────────────────
+      - name: tradingmaster-api
+        rules:
+          - alert: ApiHighErrorRate
+            expr: >-
+              sum(rate(http_requests_total{status_code=~"5.."}[5m]))
+              / clamp_min(sum(rate(http_requests_total[5m])), 0.001) > 0.05
+            for: 10m
+            labels:
+              severity: critical
+              component: api
+            annotations:
+              summary: "Over 5% of API requests are failing"
+              description: "5xx rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+          - alert: ApiRateLimitingHeavily
+            expr: sum(rate(rate_limit_rejections_total[10m])) * 60 > 100
+            for: 10m
+            labels:
+              severity: warning
+              component: api
+            annotations:
+              summary: "The API is rejecting more than 100 requests a minute"
+              description: >-
+                Either a client is misbehaving or the configured limits are too low
+                for legitimate traffic. Bucket: {{ $labels.bucket }}.
+
+          - alert: LiveStreamDroppingMessages
+            expr: sum(rate(websocket_messages_dropped_total[10m])) > 0
+            for: 10m
+            labels:
+              severity: warning
+              component: api
+            annotations:
+              summary: "Live-stream subscribers are falling behind"
+              description: >-
+                Candles are being dropped for slow WebSocket clients. Sustained
+                drops mean the API cannot keep up with the feed, not just one slow
+                browser.
 
 ---
 apiVersion: apps/v1
@@ -40,6 +203,8 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /etc/prometheus
+            - name: rules
+              mountPath: /etc/prometheus/rules
             - name: data
               mountPath: /prometheus
           resources:
@@ -53,6 +218,9 @@ spec:
         - name: config
           configMap:
             name: prometheus-config
+        - name: rules
+          configMap:
+            name: prometheus-rules
         - name: data
           emptyDir: {}   # overridden with a PVC in the prod overlay
 

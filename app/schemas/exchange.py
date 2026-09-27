@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -16,9 +16,47 @@ def _dedupe(values: List[str]) -> List[str]:
     return list(dict.fromkeys(values))
 
 
+# How the producer reads an exchange (app/kafka/producer.py):
+#   multi  — one watchOHLCVForSymbols stream for many symbols
+#   ohlcv  — one watchOHLCV stream per symbol
+#   trades — candles built from watchTrades
+CollectionMethod = Literal["multi", "ohlcv", "trades"]
+
+
 class ExchangeCreate(BaseModel):
-    name: str = Field(..., examples=["binance"])
-    method: str = Field(..., examples=["multi", "ohlcv", "trades"])
+    """
+    A new exchange to collect from.
+
+    `name` is validated strictly because it is not just a label: it becomes a
+    ccxt class lookup (`getattr(ccxtpro, name)`), a segment of a Kafka topic
+    name, and part of the Flink job's topic-pattern SQL literal. It used to be
+    an unconstrained free-text field writable by any authenticated user.
+    """
+
+    name: str = Field(
+        ..., examples=["binance"], min_length=2, max_length=32,
+        pattern=r"^[a-z0-9_]+$",
+        description="ccxt exchange id — lower-case letters, digits and underscores",
+    )
+    method: CollectionMethod = Field(..., examples=["multi", "ohlcv", "trades"])
+
+    @field_validator("name")
+    @classmethod
+    def _known_to_ccxt(cls, value: str) -> str:
+        """
+        Reject an exchange ccxt has never heard of. Without this the producer
+        would raise AttributeError on every reconnect for a name nobody can fix
+        except by editing the database.
+        """
+        try:
+            import ccxt.pro as ccxtpro
+        except ImportError:      # ccxt isn't needed to validate in tests
+            return value
+        if value not in getattr(ccxtpro, "exchanges", []):
+            raise ValueError(
+                f"'{value}' is not a ccxt exchange id. Check the spelling against ccxt's list."
+            )
+        return value
 
 
 class ExchangeResponse(BaseModel):
@@ -49,7 +87,8 @@ class SymbolCreate(BaseModel):
 class SymbolBulkCreate(BaseModel):
     tickers: List[str] = Field(..., min_length=1, max_length=200, examples=[["SOL/USDT", "XRP/USDT"]])
     intervals: List[str] = Field(
-        default_factory=lambda: ["1m"], min_length=1, examples=[list(SUPPORTED_INTERVALS)],
+        default_factory=lambda: ["1m"], min_length=1, max_length=len(SUPPORTED_INTERVALS),
+        examples=[list(SUPPORTED_INTERVALS)],
     )
 
     @field_validator("tickers")

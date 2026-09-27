@@ -1,14 +1,24 @@
-# Patch — Grafana/Jaeger reachable externally, real resources, no anonymous auth.
-# Prometheus/Loki still use emptyDir here (inherited from base) — swap in a
-# PVC + retention config before relying on this in production; placeholders,
-# same as this overlay's secrets.yaml.
+# Patch — real resources, no anonymous auth, and NO public IPs for the
+# observability stack.
+#
+# Grafana and Jaeger were both `type: LoadBalancer` here, which gave the
+# metrics dashboard and the entire trace store public IP addresses. Jaeger has
+# no authentication of its own at all, and the traces carry the full shape of
+# the platform's internal calls. They are ClusterIP now; reach them with
+#
+#   kubectl -n tradingmaster port-forward svc/grafana-service 3000:3000
+#
+# or put them behind an authenticated ingress. Prometheus/Loki still use
+# emptyDir here (inherited from base) — swap in a PVC + retention config before
+# relying on this in production; placeholders, same as this overlay's
+# secrets.yaml.
 apiVersion: v1
 kind: Service
 metadata:
   name: grafana-service
   namespace: tradingmaster
 spec:
-  type: LoadBalancer
+  type: ClusterIP
 
 ---
 apiVersion: v1
@@ -17,7 +27,7 @@ metadata:
   name: jaeger-service
   namespace: tradingmaster
 spec:
-  type: LoadBalancer
+  type: ClusterIP
 
 ---
 apiVersion: apps/v1

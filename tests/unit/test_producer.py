@@ -366,6 +366,7 @@ async def test_stream_exchange_dispatches_method_and_closes_on_cancellation():
         patch.object(producer_module, "ccxtpro") as ccxt,
         patch.object(producer_module, "_stream_multi", new_callable=AsyncMock) as stream,
     ):
+        ccxt.exchanges = ["binance", "kraken", "coinbase"]
         ccxt.binance.return_value = exchange
         stream.side_effect = asyncio.CancelledError()
         with pytest.raises(asyncio.CancelledError):
@@ -385,6 +386,7 @@ async def test_stream_exchange_skips_markets_the_exchange_does_not_list():
         patch.object(producer_module, "ccxtpro") as ccxt,
         patch.object(producer_module, "_stream_multi", new_callable=AsyncMock) as stream,
     ):
+        ccxt.exchanges = ["binance", "kraken", "coinbase"]
         ccxt.binance.return_value = exchange
         stream.side_effect = asyncio.CancelledError()
         with pytest.raises(asyncio.CancelledError):
@@ -402,6 +404,7 @@ async def test_stream_exchange_reconnects_after_stream_error():
         patch.object(producer_module, "_stream_ohlcv", new_callable=AsyncMock) as stream,
         patch.object(producer_module.asyncio, "sleep", new_callable=AsyncMock) as sleep,
     ):
+        ccxt.exchanges = ["binance", "kraken", "coinbase"]
         ccxt.kraken.return_value = exchange
         stream.side_effect = [RuntimeError("socket closed"), asyncio.CancelledError()]
         with pytest.raises(asyncio.CancelledError):
@@ -420,6 +423,7 @@ async def test_stream_exchange_waits_when_no_market_is_streamable():
         patch.object(producer_module, "ccxtpro") as ccxt,
         patch.object(producer_module.asyncio, "sleep", new_callable=AsyncMock) as sleep,
     ):
+        ccxt.exchanges = ["binance", "kraken", "coinbase"]
         ccxt.binance.return_value = exchange
         sleep.side_effect = asyncio.CancelledError()
         with pytest.raises(asyncio.CancelledError):
@@ -613,3 +617,17 @@ async def test_run_producer_without_refresh_runs_streams_until_they_finish():
     stream.assert_awaited_once()
     sleep.assert_not_awaited()
     kafka.stop.assert_awaited_once()
+
+
+async def test_stream_exchange_refuses_a_name_ccxt_does_not_know():
+    """
+    `exchanges.name` drives `getattr(ccxtpro, name)`, and any authenticated
+    user can write it. A bad value must fail with a message that names the
+    cause, not an AttributeError on every reconnect.
+    """
+    config = {"name": "definitely_not_an_exchange", "symbols": {"BTC/USDT": ["1m"]}, "method": "multi"}
+
+    with patch.object(producer_module, "ccxtpro") as ccxt:
+        ccxt.exchanges = ["binance", "kraken", "coinbase"]
+        with pytest.raises(ValueError, match="not a ccxt exchange id"):
+            await _stream_exchange(config, AsyncMock())

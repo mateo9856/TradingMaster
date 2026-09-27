@@ -20,7 +20,12 @@ RUN pip install --no-cache-dir --break-system-packages apache-flink==2.3.0 pytho
 COPY app/flink_jobs/candle_builder.py .
 COPY app/flink_jobs/job_config.py .
 COPY app/flink_jobs/jars ./jars
-COPY app/.env .
+
+# NOTE: no `COPY app/.env` — it baked the build host's environment file into an
+# image layer, which then travels to every registry puller and survives even if
+# a later layer deletes it. The job's settings (TIMESCALE_JDBC_URL,
+# TIMESCALE_USER, TIMESCALE_PASS, KAFKA_BOOTSTRAP_SERVERS) are injected at run
+# time by Compose and by the Kubernetes secretRef.
 
 USER flink
 

@@ -5,13 +5,16 @@ namespace: tradingmaster
 
 resources:
   - namespace.yaml
+  - network-policy.yaml
   - postgres.yaml
   - kafka.yaml
+  - db-migrate-job.yaml
   - fastapi.yaml
   - frontend.yaml
   - flink.yaml
   - eod-cronjob.yaml
   - prometheus.yaml
+  - alertmanager.yaml
   - grafana.yaml
   - jaeger.yaml
   - loki.yaml

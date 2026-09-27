@@ -1,0 +1,120 @@
+# Network segmentation.
+#
+# There was no NetworkPolicy at all, so every pod could reach every other —
+# any compromised workload could talk straight to PostgreSQL or Kafka. These
+# policies are default-deny plus explicit allows.
+#
+# NOTE: NetworkPolicy is enforced by the CNI plugin. On a cluster whose CNI
+# ignores it (plain kindnet, some minikube drivers) these objects apply
+# cleanly and do nothing, so don't read a successful apply as proof that
+# traffic is actually being filtered.
+
+# 1. Default-deny all ingress in the namespace; the rules below re-open what's needed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: tradingmaster
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# 2. PostgreSQL: only the API, the migration Job, the archive CronJob and Flink.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-ingress
+  namespace: tradingmaster
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: fastapi
+        - podSelector:
+            matchLabels:
+              app: db-migrate
+        - podSelector:
+            matchLabels:
+              app: eod-archive
+        - podSelector:
+            matchLabels:
+              app: flink-candle-builder
+      ports:
+        - protocol: TCP
+          port: 5432
+
+---
+# 3. Kafka: the API (live stream), the producer inside it, and Flink.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kafka-ingress
+  namespace: tradingmaster
+spec:
+  podSelector:
+    matchLabels:
+      app: kafka
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: fastapi
+        - podSelector:
+            matchLabels:
+              app: flink-candle-builder
+      ports:
+        - protocol: TCP
+          port: 9092
+
+---
+# 4. The API: the front-end, and Prometheus for /metrics.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fastapi-ingress
+  namespace: tradingmaster
+spec:
+  podSelector:
+    matchLabels:
+      app: fastapi
+  policyTypes:
+    - Ingress
+  ingress:
+    # External traffic arrives via the Service (LoadBalancer/NodePort), which
+    # has no pod selector to match — an empty `from` admits it.
+    - ports:
+        - protocol: TCP
+          port: 8000
+
+---
+# 5. Observability back-ends: only Prometheus/Grafana/Promtail, never the app pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: observability-ingress
+  namespace: tradingmaster
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app
+        operator: In
+        values: ["prometheus", "grafana", "loki", "jaeger", "alertmanager"]
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values: ["prometheus", "grafana", "promtail", "alertmanager", "fastapi", "flink-candle-builder", "eod-archive"]

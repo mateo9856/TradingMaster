@@ -4,6 +4,8 @@ stays API-only when it doesn't — so `pytest`, `uvicorn --reload` and the Vite
 dev server all work without a build.
 """
 
+from unittest.mock import AsyncMock, patch
+
 import app.main as main_module
 
 
@@ -62,7 +64,8 @@ async def test_spa_routes_fall_back_to_index_html(client):
         assert response.status_code == 404
 
 
-async def test_metrics_is_served_on_the_exact_path_prometheus_scrapes(client):
+@patch("app.main.refresh_job_metrics", new_callable=AsyncMock)
+async def test_metrics_is_served_on_the_exact_path_prometheus_scrapes(_refresh, client):
     """
     Prometheus scrapes /metrics with no trailing slash (see
     observability/prometheus/prometheus.yml), and the System screen fetches the

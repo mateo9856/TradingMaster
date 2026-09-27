@@ -1,4 +1,19 @@
 -- ─────────────────────────────────────────────────────────────────────────────
+-- SUPERSEDED — kept only so older runbooks don't dead-end.
+--
+-- This script is now Alembic revision 0002_legacy_alignment
+-- (migrations/versions/2026_09_27_1845-0002_legacy_alignment.py). Run that
+-- instead; it does everything below plus the two steps this script never
+-- covered (candles.trace_id and the users table), and it records that the
+-- database has been migrated:
+--
+--   alembic upgrade head
+--
+-- Applying this script by hand first is still safe — both are idempotent, and
+-- the Alembic revision detects work that has already been done.
+-- ─────────────────────────────────────────────────────────────────────────────
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- 2026-09 — multi-interval candles + unified USD price feed
 --
 -- Base.metadata.create_all() never alters existing tables, so any database

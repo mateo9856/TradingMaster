@@ -1,8 +1,11 @@
 import asyncio
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
+from app.helpers.time import utc_now_naive
+from app.models.job_run import EOD_ARCHIVE_JOB, JobRun
 
 
 async def test_list_exchanges_returns_alphabetical_rows(client, db_session):
@@ -104,13 +107,90 @@ async def test_history_limit_and_not_found(client, history_candles):
 
 
 async def test_archive_endpoint_starts_background_job(client):
-    with patch("app.jobs.eod_archive.run_eod_job", new_callable=AsyncMock) as job:
+    with patch("app.routers.history.run_eod_job", new_callable=AsyncMock) as job:
         response = await client.post("/api/v1/history/archive/2026-06-23")
         await asyncio.sleep(0)
 
     assert response.status_code == 202
     assert response.json()["status"] == "accepted"
-    job.assert_awaited_once_with(date(2026, 6, 23))
+    job.assert_awaited_once_with(date(2026, 6, 23), replace=False)
+
+
+async def test_archive_endpoint_passes_replace_through(client):
+    with patch("app.routers.history.run_eod_job", new_callable=AsyncMock) as job:
+        response = await client.post(
+            "/api/v1/history/archive/2026-06-23", params={"replace": "true"}
+        )
+        await asyncio.sleep(0)
+
+    assert response.status_code == 202
+    job.assert_awaited_once_with(date(2026, 6, 23), replace=True)
+
+
+async def test_archive_endpoint_rejects_an_unfinished_day(client):
+    """
+    Archiving today (or the future) would capture a partial day and mark it
+    done, so the rest of the day would never be archived.
+    """
+    today = utc_now_naive().date()
+    with patch("app.routers.history.run_eod_job", new_callable=AsyncMock) as job:
+        response = await client.post(f"/api/v1/history/archive/{today}")
+
+    assert response.status_code == 422
+    job.assert_not_awaited()
+
+
+async def test_archive_runs_endpoint_reports_recent_outcomes(client, db_session):
+    db_session.add_all([
+        JobRun(job_name=EOD_ARCHIVE_JOB, target_date=date(2026, 6, 22),
+               started_at=datetime(2026, 6, 23, 23, 30), finished_at=datetime(2026, 6, 23, 23, 34),
+               status="success", rows_archived=120, rows_skipped=0, rows_deleted=95, files_written=3),
+        JobRun(job_name=EOD_ARCHIVE_JOB, target_date=date(2026, 6, 21),
+               started_at=datetime(2026, 6, 22, 23, 30), finished_at=datetime(2026, 6, 22, 23, 31),
+               status="failure", error="RuntimeError('kaboom')"),
+    ])
+    await db_session.commit()
+
+    response = await client.get("/api/v1/history/archive/runs")
+
+    assert response.status_code == 200
+    runs = response.json()["data"]
+    assert [r["status"] for r in runs] == ["success", "failure"]      # newest first
+    assert runs[0]["rows_archived"] == 120
+    assert "kaboom" in runs[1]["error"]
+
+
+async def test_history_rejects_an_inverted_date_range(client, history_candles):
+    response = await client.get(
+        "/api/v1/history/BTC%2FUSD",
+        params={"date_from": "2026-06-23", "date_to": "2026-06-22"},
+    )
+    assert response.status_code == 422
+
+
+async def test_history_rejects_an_oversized_date_range(client, history_candles):
+    """An unbounded range let one request ask for every row the table holds."""
+    response = await client.get(
+        "/api/v1/history/BTC%2FUSD",
+        params={"date_from": "0001-01-01", "date_to": "9999-12-31"},
+    )
+    assert response.status_code == 422
+
+
+async def test_history_rejects_an_oversized_limit(client, history_candles):
+    response = await client.get(
+        "/api/v1/history/BTC%2FUSD",
+        params={"date_from": "2026-06-22", "date_to": "2026-06-23", "limit": 100_000_000},
+    )
+    assert response.status_code == 422
+
+
+async def test_history_rejects_an_unsupported_interval(client, history_candles):
+    response = await client.get(
+        "/api/v1/history/BTC%2FUSD",
+        params={"date_from": "2026-06-22", "date_to": "2026-06-23", "interval": "7m"},
+    )
+    assert response.status_code == 422
 
 
 async def test_history_resolves_native_ticker_to_unified(client, history_candles):

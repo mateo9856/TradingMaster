@@ -62,6 +62,11 @@ export function useLiveCandles({
     } catch {
       return; // a malformed frame must not kill the stream
     }
+    // The server sends a heartbeat when a market is quiet, so it can tell a
+    // live socket from a half-open one. It isn't a candle: counting it would
+    // inflate the message count and push a non-candle into the raw-feed panel
+    // that exists to show what the platform actually publishes.
+    if ((candle as { type?: string }).type === "heartbeat") return;
     setLastMessage(candle);
     setMessageCount((count) => count + 1);
     // One topic carries every interval of a market — keep the selected one.

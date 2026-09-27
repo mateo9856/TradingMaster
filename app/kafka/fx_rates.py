@@ -117,6 +117,12 @@ async def watch_fx_rates(
 ) -> None:
     """Keeps `rates` up to date from the reference exchange. Reconnects on errors."""
     if exchange is None:
+        # FX_REFERENCE_EXCHANGE comes from the environment and is used as a
+        # module attribute lookup — check it resolves to a real ccxt exchange.
+        if FX_REFERENCE_EXCHANGE not in getattr(ccxtpro, "exchanges", []):
+            raise ValueError(
+                f"FX_REFERENCE_EXCHANGE='{FX_REFERENCE_EXCHANGE}' is not a ccxt exchange id."
+            )
         exchange = getattr(ccxtpro, FX_REFERENCE_EXCHANGE)({})
     exchange_id = getattr(exchange, "id", FX_REFERENCE_EXCHANGE)
 

@@ -15,11 +15,14 @@ and stored by the Flink job — no restart needed.
 """
 
 from typing import List
-from fastapi import APIRouter, Depends, HTTPException, status
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_active_user
+from app.config import MARKET_MAX_PAGE_SIZE
 from app.helpers.markets import unified_ticker
 from app.models.database import get_db
 from app.models.exchange import Exchange, Symbol
@@ -35,6 +38,8 @@ from app.schemas import (
     SymbolSkipped,
 )
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(
     prefix="/api/v1/exchanges",
     tags=["exchanges"],
@@ -44,8 +49,14 @@ router = APIRouter(
 # ── Exchange endpoints ────────────────────────────────────────────────────────
 
 @router.get("", response_model=ApiResponse[List[ExchangeResponse]])
-async def list_exchanges(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Exchange).order_by(Exchange.name))
+async def list_exchanges(
+    limit: int = Query(100, ge=1, le=MARKET_MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(Exchange).order_by(Exchange.name).offset(offset).limit(limit)
+    )
     exchanges = result.scalars().all()
     return ApiResponse(
         status="success",
@@ -68,6 +79,7 @@ async def create_exchange(
     db.add(exchange)
     await db.commit()
     await db.refresh(exchange)
+    logger.info(f"Exchange '{exchange.name}' created by user {user.id}")
     return ApiResponse(status="success", message="Exchange created", data=ExchangeResponse.model_validate(exchange))
 
 
@@ -85,6 +97,10 @@ async def toggle_exchange(
     exchange.enabled = not exchange.enabled
     await db.commit()
     await db.refresh(exchange)
+    logger.info(
+        f"Exchange '{exchange.name}' "
+        f"{'enabled' if exchange.enabled else 'disabled'} by user {user.id}"
+    )
     return ApiResponse(
         status="success",
         message=f"Exchange {'enabled' if exchange.enabled else 'disabled'}",
@@ -95,9 +111,18 @@ async def toggle_exchange(
 # ── Symbol endpoints ──────────────────────────────────────────────────────────
 
 @router.get("/{exchange_id}/symbols", response_model=ApiResponse[List[SymbolResponse]])
-async def list_symbols(exchange_id: int, db: AsyncSession = Depends(get_db)):
+async def list_symbols(
+    exchange_id: int,
+    limit: int = Query(500, ge=1, le=MARKET_MAX_PAGE_SIZE),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(
-        select(Symbol).where(Symbol.exchange_id == exchange_id).order_by(Symbol.ticker)
+        select(Symbol)
+        .where(Symbol.exchange_id == exchange_id)
+        .order_by(Symbol.ticker, Symbol.interval)
+        .offset(offset)
+        .limit(limit)
     )
     symbols = result.scalars().all()
     return ApiResponse(
@@ -170,6 +195,10 @@ async def create_symbol(
     db.add(symbol)
     await db.commit()
     await db.refresh(symbol)
+    logger.info(
+        f"Symbol {symbol.ticker} {symbol.interval} added to exchange "
+        f"{exchange_id} by user {user.id}"
+    )
     return ApiResponse(status="success", message="Symbol created", data=SymbolResponse.model_validate(symbol))
 
 
@@ -209,6 +238,10 @@ async def create_symbols_bulk(
     for symbol in created:
         await db.refresh(symbol)
 
+    logger.info(
+        f"Bulk symbol add on exchange {exchange_id} by user {user.id}: "
+        f"{len(created)} created, {len(skipped)} skipped"
+    )
     return ApiResponse(
         status="success",
         message=f"Created {len(created)} symbol(s), skipped {len(skipped)}",
@@ -233,6 +266,10 @@ async def toggle_symbol(
     symbol.enabled = not symbol.enabled
     await db.commit()
     await db.refresh(symbol)
+    logger.info(
+        f"Symbol {symbol.id} ({symbol.ticker} {symbol.interval}) "
+        f"{'enabled' if symbol.enabled else 'disabled'} by user {user.id}"
+    )
     return ApiResponse(
         status="success",
         message=f"Symbol {'enabled' if symbol.enabled else 'disabled'}",

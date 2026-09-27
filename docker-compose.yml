@@ -10,6 +10,25 @@ services:
     ports:
       - "5432:5432"
 
+  # One-shot schema migration. The API itself runs on the host in this Compose
+  # setup, so there is no app service to hang an init step off — run this
+  # explicitly before starting the API against a new or upgraded database:
+  #
+  #   docker compose --profile tools run --rm migrate
+  #
+  # Or, equivalently, straight from the host venv:  alembic upgrade head
+  # `alembic upgrade head` is a no-op once the database is at head.
+  migrate:
+    profiles: ["tools"]
+    build:
+      context: .
+    container_name: tradingmaster-migrate
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      TIMESCALE_URL: "postgresql+asyncpg://user:mysecretpassword@postgres:5432/tradingmaster"
+    depends_on:
+      - postgres
+
   kafka:
     image: apache/kafka:3.9.0
     hostname: kafka
@@ -96,9 +115,18 @@ services:
       - "host.docker.internal:host-gateway"   # lets Prometheus scrape the host-run FastAPI app
     volumes:
       - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./observability/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     ports:
       - "9090:9090"
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: tradingmaster-alertmanager
+    volumes:
+      - ./observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      - "9093:9093"
 
   grafana:
     image: grafana/grafana:11.3.0

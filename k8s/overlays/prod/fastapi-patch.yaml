@@ -21,6 +21,20 @@ spec:
       containers:
         - name: fastapi
           imagePullPolicy: Always   # always pull latest from registry
+          env:
+            # Turns on the strict startup checks in app/config.py:
+            # validate_config() refuses to boot on the dev AUTH_SECRET, on an
+            # empty one, or with a non-HTTPS cookie.
+            - name: APP_ENV
+              value: "production"
+            # fastapi-service is a LoadBalancer here, so /docs, /redoc and
+            # /openapi.json would otherwise publish the whole endpoint surface.
+            - name: DOCS_ENABLED
+              value: "false"
+            # The LoadBalancer sets X-Forwarded-For, so per-IP rate limits
+            # should count the real client rather than the proxy.
+            - name: TRUST_PROXY_HEADERS
+              value: "true"
           resources:
             requests:
               cpu: "250m"

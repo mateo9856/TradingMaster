@@ -22,4 +22,12 @@ ENV API_HOST=host.docker.internal:8000
 # nginx's own template processing substitutes API_HOST at startup.
 ENV NGINX_ENVSUBST_TEMPLATE_SUFFIX=.template
 
+# Run unprivileged. nginx:alpine ships an `nginx` user and writes its pid,
+# cache and temp files under /var/cache/nginx and /var/run, so those need to be
+# writable by it; port 8080 is already above 1024, so no capability is needed
+# to bind it.
+RUN touch /var/run/nginx.pid \
+    && chown -R nginx:nginx /var/cache/nginx /var/run/nginx.pid /usr/share/nginx/html /etc/nginx/conf.d
+USER nginx
+
 EXPOSE 8080

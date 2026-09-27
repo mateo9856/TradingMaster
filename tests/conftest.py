@@ -17,9 +17,14 @@ import os
 # Must be set before any `app.*` module is imported (env vars are read once,
 # at app.config import time) — keeps tests from dialing a real OTLP endpoint.
 os.environ.setdefault("OTEL_ENABLED", "false")
+# The suite builds its schema with Base.metadata.create_all against SQLite
+# (see reset_database below); Alembic owns real PostgreSQL deployments, so
+# the startup head-revision guard has nothing to check here.
+os.environ.setdefault("DB_SCHEMA_CHECK", "false")
 
 import uuid
 
+import pytest
 import pytest_asyncio
 from datetime import datetime
 from httpx import AsyncClient, ASGITransport
@@ -51,6 +56,23 @@ TestingSessionLocal = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
 )
+
+
+# ── Rate limiter ──────────────────────────────────────────────────────────────
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    """
+    The limiter's counters are process-global and would otherwise carry over
+    between tests — the auth bucket is 10/min, and a test file that registers
+    and logs in repeatedly would exhaust it for every test after it. Tests that
+    exercise the limit deliberately set their own low limits.
+    """
+    from app.middleware.rate_limit import limiter
+
+    limiter.reset()
+    yield
+    limiter.reset()
 
 
 # ── DB lifecycle ──────────────────────────────────────────────────────────────

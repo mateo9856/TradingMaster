@@ -17,17 +17,26 @@ endpoint instead: POST /api/v1/history/archive/{target_date}
 
 Run manually:
     source env/bin/activate
-    python -m app.eod_runner              # archives yesterday (UTC)
-    python -m app.eod_runner 2026-06-23   # backfill a specific date
+    python -m app.eod_runner                        # archives yesterday (UTC)
+    python -m app.eod_runner 2026-06-23             # backfill a specific date
+    python -m app.eod_runner 2026-06-23 --dry-run   # report, change nothing
+    python -m app.eod_runner 2026-06-23 --replace   # discard and re-archive the day
+
+Re-running a date is safe: the archive skips rows history already holds. Use
+--replace only to re-archive after correcting source data.
+
+Exit codes: 0 success, 1 failure, 2 another run holds the lock,
+            3 --replace refused (the day's source candles are gone).
 """
 
+import argparse
 import asyncio
 import logging
 import sys
 from datetime import date
 
 import app.config as config
-from app.jobs.eod_archive import run_eod_job
+from app.jobs.eod_archive import ArchiveLockedError, NothingToReplaceError, run_eod_job
 from app.logging_config import setup_json_logging
 from app.tracing import setup_tracing
 
@@ -41,10 +50,58 @@ setup_tracing(
 logger = logging.getLogger(__name__)
 
 
-def main() -> None:
-    target_date = date.fromisoformat(sys.argv[1]) if len(sys.argv) > 1 else None
-    asyncio.run(run_eod_job(target_date))
+EXIT_OK = 0
+EXIT_FAILED = 1
+EXIT_LOCKED = 2
+EXIT_REFUSED = 3
+
+
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="python -m app.eod_runner",
+        description="Archive one day of candles to history + Parquet.",
+    )
+    parser.add_argument(
+        "target_date", nargs="?", type=date.fromisoformat, default=None,
+        metavar="YYYY-MM-DD", help="day to archive (default: yesterday, UTC)",
+    )
+    parser.add_argument(
+        "--replace", action="store_true",
+        help="delete the day's existing history rows and re-archive it "
+             "(only needed after correcting source data — a plain re-run is already safe)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="report what would be archived without changing anything",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
+    try:
+        result = asyncio.run(
+            run_eod_job(args.target_date, replace=args.replace, dry_run=args.dry_run)
+        )
+    except ArchiveLockedError as error:
+        # Not a failure: the CronJob and a manual backfill can legitimately
+        # overlap, and the other run is doing the work.
+        logger.warning(str(error))
+        return EXIT_LOCKED
+    except NothingToReplaceError as error:
+        logger.error(str(error))
+        return EXIT_REFUSED
+    except Exception:
+        logger.exception("EOD archive job failed")
+        return EXIT_FAILED
+
+    logger.info(
+        f"EOD archive finished for {result.target_date}: "
+        f"{result.inserted} archived, {result.skipped_duplicate} already present, "
+        f"{result.files_written} file(s) written, {result.deleted} cleaned up"
+    )
+    return EXIT_OK
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

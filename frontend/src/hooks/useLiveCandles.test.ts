@@ -155,3 +155,35 @@ describe("closing", () => {
     expect(result.current.messageCount).toBe(0);
   });
 });
+
+describe("heartbeats", () => {
+  it("ignores the server's heartbeat frames", async () => {
+    installFakeWebSocket();
+    const onCandle = vi.fn();
+    const { result } = renderHook(() =>
+      useLiveCandles({ ticker: "BTC/USD", interval: "1m", onCandle }),
+    );
+    act(() => FakeWebSocket.last.open());
+
+    act(() => FakeWebSocket.last.emit({ type: "heartbeat" }));
+
+    // A heartbeat proves the socket is alive on a quiet market — it is not a
+    // candle, and must not reach the chart, the counter or the raw-feed panel.
+    expect(onCandle).not.toHaveBeenCalled();
+    expect(result.current.messageCount).toBe(0);
+    expect(result.current.lastMessage).toBeNull();
+  });
+
+  it("still delivers candles after a heartbeat", async () => {
+    installFakeWebSocket();
+    const onCandle = vi.fn();
+    renderHook(() => useLiveCandles({ ticker: "BTC/USD", interval: "1m", onCandle }));
+    act(() => FakeWebSocket.last.open());
+
+    act(() => FakeWebSocket.last.emit({ type: "heartbeat" }));
+    const candle = liveCandle();
+    act(() => FakeWebSocket.last.emit(candle));
+
+    expect(onCandle).toHaveBeenCalledWith(candle);
+  });
+});

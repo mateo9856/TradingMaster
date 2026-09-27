@@ -1,0 +1,49 @@
+# Applies the database schema. This is the ONLY thing that runs DDL.
+#
+# The API used to build its own schema with Base.metadata.create_all at startup,
+# which never altered an existing table and which all three production replicas
+# ran concurrently. Now Alembic owns the schema, one Job applies it, and the API
+# pods only wait for it (see the initContainer in fastapi.yaml).
+#
+# Re-apply this Job on every release that ships a migration. `alembic upgrade
+# head` is a no-op when the database is already at head, so re-running is safe.
+# Kustomize has no Helm-style pre-install hook, so ordering is enforced by the
+# API pods blocking until the schema is ready rather than by apply order.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-migrate
+  namespace: tradingmaster
+spec:
+  backoffLimit: 3
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: db-migrate
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: db-migrate
+          image: tradingmaster-api:latest
+          command: ["alembic", "upgrade", "head"]
+          envFrom:
+            - secretRef:
+                name: tradingmaster-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

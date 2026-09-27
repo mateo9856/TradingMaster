@@ -354,3 +354,97 @@ async def test_list_markets_is_public(anonymous_client, markets):
     response = await anonymous_client.get("/api/v1/market/markets")
 
     assert response.status_code == status.HTTP_200_OK
+
+
+# ---------------------------------------------------------------------------
+# Live stream admission control
+#
+# Every viewer used to get its own Kafka consumer and there was no cap at all,
+# so connections were limited only by what a client chose to open.
+# ---------------------------------------------------------------------------
+
+def test_connections_are_capped_per_client(monkeypatch):
+    from app.routers import market
+
+    monkeypatch.setattr(market, "_open_connections", 0)
+    monkeypatch.setattr(market, "_connections_per_ip", {})
+    monkeypatch.setattr(market, "WS_MAX_CONNECTIONS_PER_IP", 2)
+    monkeypatch.setattr(market, "WS_MAX_CONNECTIONS", 100)
+
+    assert market._admit("1.2.3.4")[0] is True
+    assert market._admit("1.2.3.4")[0] is True
+
+    admitted, reason = market._admit("1.2.3.4")
+    assert admitted is False
+    assert reason == "per_client_capacity"
+
+    # A different client is unaffected by one noisy neighbour.
+    assert market._admit("5.6.7.8")[0] is True
+
+
+def test_connections_are_capped_for_the_whole_process(monkeypatch):
+    from app.routers import market
+
+    monkeypatch.setattr(market, "_open_connections", 0)
+    monkeypatch.setattr(market, "_connections_per_ip", {})
+    monkeypatch.setattr(market, "WS_MAX_CONNECTIONS", 2)
+    monkeypatch.setattr(market, "WS_MAX_CONNECTIONS_PER_IP", 100)
+
+    assert market._admit("1.1.1.1")[0] is True
+    assert market._admit("2.2.2.2")[0] is True
+
+    admitted, reason = market._admit("3.3.3.3")
+    assert admitted is False
+    assert reason == "server_capacity"
+
+
+def test_releasing_a_slot_lets_the_next_client_in(monkeypatch):
+    from app.routers import market
+
+    monkeypatch.setattr(market, "_open_connections", 0)
+    monkeypatch.setattr(market, "_connections_per_ip", {})
+    monkeypatch.setattr(market, "WS_MAX_CONNECTIONS", 1)
+    monkeypatch.setattr(market, "WS_MAX_CONNECTIONS_PER_IP", 1)
+
+    assert market._admit("1.2.3.4")[0] is True
+    assert market._admit("1.2.3.4")[0] is False
+
+    market._release("1.2.3.4")
+
+    assert market._admit("1.2.3.4")[0] is True
+    # The per-IP map must not keep an entry once the client has gone, or it
+    # grows for every address that ever connected.
+    market._release("1.2.3.4")
+    assert market._connections_per_ip == {}
+
+
+async def test_the_pump_filters_to_the_requested_interval():
+    """
+    The UI used to receive every interval and discard the unwanted ones in the
+    browser; filtering here keeps them off the wire.
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.kafka.stream_hub import Subscription
+    from app.routers.market import _pump
+
+    subscription = Subscription(("t",), maxsize=10)
+    subscription.offer({"interval": "1m", "close_price": "1"})
+    subscription.offer({"interval": "5m", "close_price": "2"})
+    subscription.offer({"interval": "1m", "close_price": "3"})
+
+    websocket = MagicMock()
+    sent = []
+
+    async def send_json(payload):
+        sent.append(payload)
+        if len(sent) == 2:
+            raise asyncio.CancelledError      # stop the pump
+
+    websocket.send_json = AsyncMock(side_effect=send_json)
+
+    with pytest.raises(asyncio.CancelledError):
+        await _pump(websocket, subscription, wanted_interval="1m")
+
+    assert [p["close_price"] for p in sent] == ["1", "3"]

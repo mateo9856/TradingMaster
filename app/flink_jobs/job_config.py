@@ -34,6 +34,11 @@ UNIFIED_SCHEMA_VERSION: int = 2
 
 # Used when the exchange list can't be loaded (or is empty): subscribe to every
 # candle topic rather than silently storing nothing.
+#
+# It is a fallback, not a normal mode. Reaching it means the job could not read
+# the `exchanges` table, so it is storing whatever happens to be on the broker
+# with no idea whether that matches the configured markets — hence the loud
+# logging at both call sites below.
 CATCH_ALL_TOPIC_PATTERN: str = r"^[a-z0-9_-]+\.[A-Z0-9]+\.candles$"
 
 KAFKA_GROUP_ID: str = "flink-candle-builder"
@@ -86,7 +91,12 @@ def build_topic_pattern(exchanges: Iterable[str]) -> str:
     """Kafka topic regex for the given exchanges, e.g. ^(binance|kraken)\\.[A-Z0-9]+\\.candles$."""
     names = sorted({name.strip().lower() for name in exchanges if name and name.strip()})
     if not names:
-        logger.warning("No enabled exchanges — subscribing to all candle topics")
+        logger.error(
+            "FALLING BACK TO THE CATCH-ALL TOPIC PATTERN: no enabled exchanges were "
+            "readable from the database, so this job will subscribe to every candle "
+            "topic on the broker regardless of configuration. Check the `exchanges` "
+            "table and the job's database connection."
+        )
         return CATCH_ALL_TOPIC_PATTERN
     alternatives = "|".join(re.escape(name) for name in names)
     return rf"^({alternatives})\.[A-Z0-9]+\.candles$"
