@@ -22,6 +22,18 @@ Markets (exchange + ticker + interval) live in the DB (`exchanges`/`symbols` tab
 
 ## Commands
 
+Local setup: `./dev up` runs everything in Compose, `./dev infra` runs only
+Postgres+Kafka for host development, `./dev help` lists the rest. Full walkthrough
+with the real gotchas in `docs/LOCAL_DEVELOPMENT.md`.
+
+**Use `./dev`, not `docker compose` directly.** Compose starts whatever image
+carries the tag it asks for and never looks at your source, so it will happily
+run a stale build — that silently produced a Flink job subscribed to
+pre-unified-feed topics, and a front-end served without its security headers.
+`scripts/image-tag.sh` hashes every build input and `./dev` passes it as the
+image tag, so changed source means a tag that does not exist yet and Compose
+must rebuild. `./dev stale` reports drift; `./dev clean-images` removes old tags.
+
 ```bash
 source .env/bin/activate            # or env/bin/activate — see Environments below
 pip install -r requirements.txt
