@@ -4,6 +4,15 @@ TradingMaster is a real-time cryptocurrency market-data service. It collects OHL
 
 For a non-technical overview of the business logic, use cases and improvement roadmap, see [docs/BUSINESS_SUMMARY.md](docs/BUSINESS_SUMMARY.md).
 
+**Setting up to run or test it locally?**
+
+```bash
+cp .env.example .env
+./dev up        # builds what changed, starts everything
+```
+
+Full walkthrough in **[docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)** — a verified step-by-step walkthrough, including the gotchas. Security posture is documented in [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md).
+
 ## Architecture
 
 ```text
