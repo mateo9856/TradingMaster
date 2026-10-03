@@ -8,26 +8,108 @@ services:
       POSTGRES_PASSWORD: mysecretpassword
       POSTGRES_DB: tradingmaster
     ports:
-      - "5432:5432"
+      # Host port is overridable: 5432 is often already taken by a system or
+      # other-project PostgreSQL. Set POSTGRES_HOST_PORT=5433 in .env (and match
+      # it in TIMESCALE_URL) rather than fighting over the default.
+      - "${POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      # A named volume, so `docker compose down` / recreating the container does
+      # not silently keep a database that was initialised with different
+      # credentials — POSTGRES_PASSWORD is only applied on first init.
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d tradingmaster"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  # One-shot schema migration. The API itself runs on the host in this Compose
-  # setup, so there is no app service to hang an init step off — run this
-  # explicitly before starting the API against a new or upgraded database:
+  # Schema migration — runs to completion, then exits. The api and flink
+  # services wait for it (`service_completed_successfully`), so a fresh
+  # `docker compose up` always has the right schema before anything touches the
+  # database. `alembic upgrade head` is idempotent, so this is a no-op on an
+  # already-current database.
   #
-  #   docker compose --profile tools run --rm migrate
-  #
-  # Or, equivalently, straight from the host venv:  alembic upgrade head
-  # `alembic upgrade head` is a no-op once the database is at head.
+  # Deliberately NOT behind a profile: if it did not run, the API would refuse
+  # to start (app/models/schema_check.py) and the error would look like a bug
+  # rather than a missing step.
   migrate:
-    profiles: ["tools"]
     build:
       context: .
+    image: tradingmaster-api:${TM_IMAGE_TAG:-dev}
     container_name: tradingmaster-migrate
     command: ["alembic", "upgrade", "head"]
     environment:
       TIMESCALE_URL: "postgresql+asyncpg://user:mysecretpassword@postgres:5432/tradingmaster"
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # ── The application ──────────────────────────────────────────────────────────
+  # Serves the REST API, the live WebSocket stream and the built UI, and runs
+  # the exchange collector in its own lifespan.
+  #
+  # Exactly ONE of these may run at a time — this container or a host-run
+  # `uvicorn app.main:app`. Two would open duplicate exchange streams and
+  # publish every candle twice (the same reason k8s must not scale it; see
+  # A04-5 in docs/SECURITY_AUDIT.md).
+  api:
+    build:
+      context: .
+    image: tradingmaster-api:${TM_IMAGE_TAG:-dev}
+    container_name: tradingmaster-api
+    # .env supplies the settings; the overrides below replace the few that are
+    # host-relative (localhost means *this container* in here).
+    env_file:
+      - .env
+    environment:
+      TIMESCALE_URL: "postgresql+asyncpg://user:mysecretpassword@postgres:5432/tradingmaster"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"   # INTERNAL listener — see the kafka service
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      # The UI is same-origin here (FastAPI serves the bundle), so no CORS.
+      CORS_ALLOW_ORIGINS: ""
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+    volumes:
+      # EOD archive output. A named volume so Parquet files survive the
+      # container — in the image this path is owned by the non-root appuser.
+      - archive_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  # One-shot end-of-day archive, for testing the job by hand:
+  #   docker compose run --rm eod-archive 2026-10-03
+  #   docker compose run --rm eod-archive 2026-10-03 --dry-run
+  eod-archive:
+    profiles: ["tools"]
+    build:
+      context: .
+    image: tradingmaster-api:${TM_IMAGE_TAG:-dev}
+    entrypoint: ["python", "-m", "app.eod_runner"]
+    env_file:
+      - .env
+    environment:
+      TIMESCALE_URL: "postgresql+asyncpg://user:mysecretpassword@postgres:5432/tradingmaster"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+    volumes:
+      - archive_data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   kafka:
     image: apache/kafka:3.9.0
@@ -53,7 +135,16 @@ services:
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     ports:
-      - "9092:9092"
+      - "${KAFKA_HOST_PORT:-9092}:9092"
+    healthcheck:
+      # "Up" is not the same as "accepting API requests" — the broker takes a
+      # few seconds after the container starts, and a producer that connects in
+      # that window just errors.
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 15s
 
   pgadmin:
     image: dpage/pgadmin4
@@ -70,6 +161,7 @@ services:
     build:
       context: .
       dockerfile: app/flink_jobs/Dockerfile
+    image: tradingmaster-flink:${TM_IMAGE_TAG:-dev}
     container_name: tradingmaster-flink
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:29092   # INTERNAL listener — see kafka service
@@ -85,8 +177,17 @@ services:
     ports:
       - "9250:9250"   # Flink's own Prometheus metrics reporter
     depends_on:
-      - kafka
-      - postgres
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      # Waiting for the API means the exchanges/symbols seeder has run. Starting
+      # first would read an empty exchanges table and fall back to the
+      # subscribe-to-everything pattern (job_config.CATCH_ALL_TOPIC_PATTERN).
+      api:
+        condition: service_healthy
 
   # ── Front-end (optional) ─────────────────────────────────────────────────────
   # The UI also runs without this service: `cd frontend && npm run dev` (proxying
@@ -97,13 +198,18 @@ services:
     build:
       context: .
       dockerfile: frontend/Dockerfile
+    image: tradingmaster-frontend:${TM_IMAGE_TAG:-dev}
     container_name: tradingmaster-frontend
     environment:
-      # The API must listen on 0.0.0.0 for this to resolve — `uvicorn app.main:app
-      # --host 0.0.0.0`. Bound to 127.0.0.1 the container can't reach it (502).
-      API_HOST: "host.docker.internal:8000"
+      # The api service inside this network. Override to
+      # "host.docker.internal:8000" if you are running the API on the host
+      # instead (and start it with --host 0.0.0.0, or the container gets a 502).
+      API_HOST: "${FRONTEND_API_HOST:-api:8000}"
     extra_hosts:
-      - "host.docker.internal:host-gateway"   # the API runs on the host, not in Compose
+      - "host.docker.internal:host-gateway"   # still available for the host-API variant
+    depends_on:
+      api:
+        condition: service_healthy
     ports:
       - "5174:8080"
 
@@ -175,5 +281,7 @@ services:
       - loki
 
 volumes:
+  postgres_data:
+  archive_data:
   prometheus_data:
   grafana_data:

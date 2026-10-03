@@ -7,10 +7,21 @@ production deployment on a development default rather than silently signing
 real sessions with a key that is published in this repository.
 """
 
+from pathlib import Path
+
 from dotenv import load_dotenv
 import os
 
-load_dotenv()
+# Load the repo-root .env *explicitly*.
+#
+# Bare load_dotenv() searches upward from the calling file, i.e. from app/, so a
+# stray app/.env silently shadowed this one — and only for some entry points,
+# because the search start depends on the call stack. `uvicorn app.main:app`
+# picked up the root file while `alembic upgrade head` picked up app/.env, so
+# the API and its migrations could disagree about which database they meant.
+# Naming the path removes the ambiguity.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(REPO_ROOT / ".env")
 
 # Which kind of deployment this is: "development" (the default, permissive) or
 # "production" (strict — see validate_config below). Staging and anything else

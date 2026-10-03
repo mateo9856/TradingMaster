@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+#
+# TradingMaster — local development entry point.
+#
+#   ./dev help
+#
+# WHY NOT JUST `docker compose up -d`?
+# ------------------------------------
+# Compose starts whatever image already carries the tag the compose file asks
+# for. It does not look at your source, so after editing code you can silently
+# start a container built from last week's files. See scripts/image-tag.sh for
+# the two times that bit us.
+#
+# Every command here computes a content hash of the build inputs and passes it
+# as the image tag (TM_IMAGE_TAG). Change a file and the tag changes; no image
+# exists under the new tag, so Compose must build it. Staleness stops being
+# something you have to remember.
+#
+# Plain `docker compose` still works, but falls back to the tag "dev" and gives
+# you no such guarantee — use `./dev` instead.
+
+set -euo pipefail
+cd "$(dirname "$0")"
+
+TM_IMAGE_TAG="$(scripts/image-tag.sh)"
+export TM_IMAGE_TAG
+
+PY=env/bin/python
+API_PORT="${API_HOST_PORT:-8000}"
+
+c() { docker compose "$@"; }
+
+urls() {
+  echo
+  echo "  API + UI    http://localhost:${API_PORT}"
+  echo "  Swagger     http://localhost:${API_PORT}/docs"
+  echo "  Grafana     http://localhost:3000   (admin/admin)"
+  echo "  Prometheus  http://localhost:9090   (Status -> Rules for the alerts)"
+  echo
+}
+
+status() { c ps --format '  {{.Name}}\t{{.Status}}' | sort; }
+
+case "${1:-help}" in
+
+# ── Running ──────────────────────────────────────────────────────────────────
+
+up)         # Start the whole stack, building anything whose source changed
+  c up -d --build
+  urls
+  status
+  ;;
+
+infra)      # Only Postgres + Kafka + migrations, for running the app on the host
+  c up -d --build postgres kafka migrate
+  echo
+  echo "  Infrastructure up. Now run the app from your venv:"
+  echo "    $PY -m uvicorn app.main:app --reload"
+  echo "    (cd frontend && npm run dev)"
+  ;;
+
+down)       # Stop and remove containers, keep the data
+  c down
+  ;;
+
+reset)      # Stop everything and WIPE the database and archives
+  read -rp "This deletes the database and all archives. Type 'yes' to confirm: " ok
+  [ "$ok" = "yes" ] || { echo "aborted"; exit 1; }
+  c down -v
+  ;;
+
+restart)    # Recreate the stack, rebuilding changed images
+  c up -d --build --force-recreate
+  status
+  ;;
+
+ps)         # Service status
+  status
+  ;;
+
+logs)       # Follow logs:  ./dev logs        ./dev logs api
+  shift || true
+  c logs -f "$@"
+  ;;
+
+# ── Images ───────────────────────────────────────────────────────────────────
+
+build)      # Build images for the current source
+  c build
+  ;;
+
+rebuild)    # Build from scratch, ignoring the Docker layer cache
+  c build --no-cache
+  ;;
+
+stale)      # Report whether any image is behind the working tree
+  echo "working tree tag: $TM_IMAGE_TAG"
+  for img in tradingmaster-api tradingmaster-flink tradingmaster-frontend; do
+    if docker image inspect "$img:$TM_IMAGE_TAG" >/dev/null 2>&1; then
+      printf '  %-26s up to date\n' "$img"
+    else
+      printf '  %-26s NOT BUILT for this source — "./dev up" will build it\n' "$img"
+    fi
+  done
+  ;;
+
+clean-images)  # Remove project images that no longer match the working tree
+  echo "keeping tag $TM_IMAGE_TAG, removing older ones:"
+  removed=0
+  # `trading-master-*` are the names Compose auto-generated before these
+  # services had an explicit `image:` — old boxes still have them around.
+  for repo in tradingmaster-api tradingmaster-flink tradingmaster-frontend \
+              trading-master-flink trading-master-frontend; do
+    # `|| true` on both: `docker images` fails if the repo is unknown, and grep
+    # exits 1 when every tag is the current one. Under `set -euo pipefail`
+    # either would abort the whole loop and silently skip the repos after it.
+    while read -r image; do
+      [ -n "$image" ] || continue
+      echo "  rm $image"
+      docker rmi "$image" >/dev/null 2>&1 || echo "     (in use, skipped)"
+      removed=$((removed + 1))
+    done < <(docker images "$repo" --format '{{.Repository}}:{{.Tag}}' 2>/dev/null \
+             | { grep -v ":${TM_IMAGE_TAG}$" || true; })
+  done
+  [ "$removed" -eq 0 ] && echo "  nothing to remove"
+  docker image prune -f >/dev/null
+  echo "done"
+  ;;
+
+clean)      # Stop everything and remove stale images
+  c down
+  "$0" clean-images
+  ;;
+
+# ── Database ─────────────────────────────────────────────────────────────────
+
+migrate)    # Apply database migrations in a container
+  c run --rm migrate
+  ;;
+
+psql)       # Open a psql shell
+  c exec postgres psql -U user -d tradingmaster
+  ;;
+
+archive)    # Run the EOD archive:  ./dev archive 2026-10-03 [--dry-run]
+  shift || true
+  c run --rm eod-archive "$@"
+  ;;
+
+# ── Checks ───────────────────────────────────────────────────────────────────
+
+verify)     # Everything CI would run
+  "$0" typecheck
+  "$0" test
+  ;;
+
+test)       # Both test suites
+  $PY -m pytest -q
+  (cd frontend && npm run test:run)
+  ;;
+
+test-backend)
+  $PY -m pytest -q
+  ;;
+
+test-frontend)
+  (cd frontend && npm run test:run)
+  ;;
+
+typecheck)  # TypeScript check. The test suite does NOT typecheck, and a break
+            # here fails the Docker build — so run this before ./dev up.
+  (cd frontend && npx tsc --noEmit)
+  echo "  tsc: clean"
+  ;;
+
+# ── Help ─────────────────────────────────────────────────────────────────────
+
+help|--help|-h)
+  echo "TradingMaster — ./dev <command>"
+  echo "  image tag for this working tree: $TM_IMAGE_TAG"
+  echo
+  echo "Running"
+  echo "  up             start the whole stack (builds what changed)"
+  echo "  infra          only Postgres + Kafka + migrations (host development)"
+  echo "  ps             service status"
+  echo "  logs [svc]     follow logs"
+  echo "  restart        recreate, rebuilding changed images"
+  echo "  down           stop, keep data"
+  echo "  reset          stop and WIPE the database + archives (asks first)"
+  echo
+  echo "Images"
+  echo "  build          build images for the current source"
+  echo "  rebuild        build ignoring the layer cache"
+  echo "  stale          is any image behind the working tree?"
+  echo "  clean-images   remove images that no longer match the source"
+  echo "  clean          down + clean-images"
+  echo
+  echo "Database"
+  echo "  migrate        apply migrations"
+  echo "  psql           psql shell"
+  echo "  archive D [..] run the EOD archive for a date"
+  echo
+  echo "Checks"
+  echo "  verify         typecheck + both test suites"
+  echo "  test           both test suites"
+  echo "  typecheck      tsc --noEmit (tests do not do this)"
+  ;;
+
+*)
+  echo "unknown command: $1" >&2
+  echo "try: ./dev help" >&2
+  exit 1
+  ;;
+esac
