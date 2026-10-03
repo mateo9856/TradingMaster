@@ -16,9 +16,12 @@ FROM nginx:1.27-alpine
 COPY --from=build /build/dist /usr/share/nginx/html
 COPY frontend/nginx.conf /etc/nginx/templates/default.conf.template
 
-# Where the API lives, e.g. "host.docker.internal:8000" (Compose, API on the
-# host) or "fastapi-service:8000" (Kubernetes).
-ENV API_HOST=host.docker.internal:8000
+# Where the API lives. The default matches Compose, where the API is the `api`
+# service on the same network. Overridden per environment:
+#   docker-compose.yml  -> api:8000            (or FRONTEND_API_HOST)
+#   k8s/base/frontend.yaml -> fastapi-service:8000
+#   API on your host    -> host.docker.internal:8000
+ENV API_HOST=api:8000
 # nginx's own template processing substitutes API_HOST at startup.
 ENV NGINX_ENVSUBST_TEMPLATE_SUFFIX=.template
 
