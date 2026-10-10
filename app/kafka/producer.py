@@ -8,8 +8,10 @@ enabling or disabling a market through the API takes effect without a restart.
 Every candle is published in one unified format, whatever the source exchange:
   - ticker is the unified USD market ("BTC/USD"); the exchange's own market
     ("BTC/USDT") is kept in source_ticker
-  - prices are converted to USD (see fx_rates.py) and, like volume, sent as
-    fixed-point strings with 8 decimals ("65000.10000000")
+  - prices are converted to USD — stablecoins with live rates (fx_rates.py),
+    fiat quotes such as a Warsaw stock's PLN with the ECB daily rate
+    (app/fiat/rates.py) — and, like volume, sent as fixed-point strings with
+    8 decimals ("65000.10000000")
   - topics are {exchange}.{UNIFIED}.candles, e.g. binance.BTCUSD.candles
 
 Intervals (30s, 1m, 5m, 1h, 1d — one symbols row per ticker+interval) use the
@@ -19,12 +21,14 @@ trade-only exchanges):
   - binance:  watchOHLCVForSymbols (multi)
   - kraken:   watchOHLCV per symbol+interval (ohlcv)
   - coinbase: watchTrades → candle aggregation (trades)
+  - yahoo:    stocks, polled bars (poll) — not ccxt, see yahoo_source.py
 """
 
 import asyncio
 import json
 import logging
 from datetime import datetime, timezone
+from functools import partial
 
 import ccxt.pro as ccxtpro
 from aiokafka import AIOKafkaProducer
@@ -34,10 +38,21 @@ from sqlalchemy import select
 
 from app.config import EXCHANGE_CREDENTIALS, KAFKA_BOOTSTRAP_SERVERS, PRODUCER_CONFIG_REFRESH_SECONDS
 from app.helpers.intervals import SUPPORTED_INTERVALS, bucket_start
-from app.helpers.markets import QUOTE_PREFERENCE, UNIFIED_QUOTE, split_symbol, topic_ticker, unified_ticker
+from app.helpers.currencies import usd_per_unit
+from app.helpers.markets import (
+    QUOTE_PREFERENCE,
+    UNIFIED_QUOTE,
+    USD_EQUIVALENT_QUOTES,
+    split_symbol,
+    topic_ticker,
+    unified_ticker,
+)
 from app.helpers.prices import format_decimal, to_decimal
+from app.helpers.sources import NON_CCXT_SOURCES
 from app.helpers.tasks import run_all
+from app.fiat.rates import fiat_rates
 from app.kafka.fx_rates import FxRates, watch_fx_rates
+from app.kafka.yahoo_source import stream_yahoo
 from app.metrics import candles_skipped_total, kafka_messages_produced_total, kafka_reconnects_total
 from app.models.database import AsyncSessionLocal
 from app.models.exchange import Exchange, Symbol
@@ -58,6 +73,11 @@ _candle_state: dict = {}
 # Shared quote → USD rates, kept fresh by watch_fx_rates() while the producer runs.
 fx_rates = FxRates()
 
+# Non-ccxt sources (app/helpers/sources.py) → the coroutine that streams them.
+# Called with (exc_config, send) where send(exchange, symbol, interval, ohlcv).
+NON_CCXT_STREAMS = {"yahoo": stream_yahoo}
+assert set(NON_CCXT_STREAMS) == set(NON_CCXT_SOURCES), "every registered source needs a stream"
+
 
 def _topic_name(exchange: str, symbol: str) -> str:
     return f"{exchange}.{topic_ticker(symbol)}.candles"
@@ -66,14 +86,14 @@ def _topic_name(exchange: str, symbol: str) -> str:
 # ── Configuration ────────────────────────────────────────────────────────────
 
 def _quote_rank(symbol: str) -> int:
-    """USD markets win over USDT, which win over USDC, when two map to one unified ticker."""
+    """USD markets win over USDT, then USDC, then fiat quotes, when two map to one unified ticker."""
     return QUOTE_PREFERENCE.index(split_symbol(symbol)[1])
 
 
 def _group_symbols(exchange_name: str, rows) -> dict[str, list[str]]:
     """
     Groups (ticker, interval) rows into {ticker: [intervals]}, dropping rows the
-    unified feed can't publish: unsupported intervals, non-USD quotes, and a
+    unified feed can't publish: unsupported intervals, unsupported quotes, and a
     second market on the same exchange that maps to an already-used unified
     ticker (e.g. kraken BTC/USDT when BTC/USD is configured too).
     """
@@ -213,6 +233,26 @@ def build_unified_payload(
     }
 
 
+async def _usd_rate(quote: str, ts_ms) -> object:
+    """
+    Multiplier that turns a `quote`-denominated price into USD: 1 for USD, the
+    live rate for a stablecoin, the ECB rate for the candle's date for a fiat
+    currency. Raises ValueError when a fiat rate isn't known yet — the candle
+    is dropped rather than published in the wrong currency.
+    """
+    if quote in USD_EQUIVALENT_QUOTES:
+        return fx_rates.get(quote)[0]
+    await fiat_rates.ensure_fresh()
+    try:
+        day = datetime.fromtimestamp(ts_ms / 1000, timezone.utc).date()
+    except (TypeError, ValueError, OverflowError, OSError) as exc:
+        raise ValueError(f"Invalid candle timestamp {ts_ms!r}") from exc
+    entry = fiat_rates.lookup(quote, day)
+    if entry is None:
+        raise ValueError(f"no ECB {quote}/USD rate on or before {day} yet")
+    return usd_per_unit(entry[1])
+
+
 async def _send_candle(
     producer: AIOKafkaProducer,
     exchange_id: str,
@@ -221,7 +261,7 @@ async def _send_candle(
     ohlcv: list,
 ) -> None:
     try:
-        rate, _ = fx_rates.get(split_symbol(symbol)[1])
+        rate = await _usd_rate(split_symbol(symbol)[1], ohlcv[0] if ohlcv else None)
         payload = build_unified_payload(exchange_id, symbol, interval, ohlcv, rate)
     except ValueError as e:
         candles_skipped_total.labels(exchange=exchange_id).inc()
@@ -348,6 +388,12 @@ async def _stream_exchange(exc_config: dict, producer: AIOKafkaProducer) -> None
     exchange_id = exc_config["name"]
     symbols     = exc_config["symbols"]
     method      = exc_config["method"]
+
+    if exchange_id in NON_CCXT_STREAMS:
+        # Not a ccxt exchange: never reaches getattr(ccxtpro, ...). The source
+        # handles its own errors and retries.
+        await NON_CCXT_STREAMS[exchange_id](exc_config, partial(_send_candle, producer))
+        return
 
     credentials = EXCHANGE_CREDENTIALS.get(exchange_id, {})
     # getattr on a name that comes from the database: validate it against

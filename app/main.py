@@ -32,8 +32,9 @@ from app.metrics import http_request_duration_seconds, http_requests_total
 from app.models.database import engine, AsyncSessionLocal
 from app.models.schema_check import assert_schema_at_head
 from app.models.seeder import seed_exchanges
+from app.fiat.rates import fiat_rates, watch_fiat_rates
 from app.kafka.producer import run_producer
-from app.routers import exchanges, history, market
+from app.routers import currencies, exchanges, history, market
 from app.tracing import setup_tracing
 
 setup_json_logging(service="tradingmaster-api", level=getattr(logging, config.LOG_LEVEL, logging.INFO))
@@ -56,6 +57,11 @@ async def lifespan(application: FastAPI):
     async with AsyncSessionLocal() as db:
         await seed_exchanges(db)
 
+    # ECB reference rates for the display currencies. Its own task, not part of
+    # the producer: prices must still be readable in PLN while Kafka is down
+    # (run_producer exits on a Kafka failure and would take the fetcher with it).
+    fiat_task = asyncio.create_task(watch_fiat_rates(fiat_rates))
+
     # Start Kafka producer
     logger.info("Starting Kafka producer (exchange streams)...")
     producer_task = asyncio.create_task(run_producer())
@@ -72,8 +78,9 @@ async def lifespan(application: FastAPI):
     # Stop the shared live-stream consumers before the event loop goes away.
     await stream_hub.close()
     producer_task.cancel()
+    fiat_task.cancel()
     try:
-        await asyncio.gather(producer_task, return_exceptions=True)
+        await asyncio.gather(producer_task, fiat_task, return_exceptions=True)
     except asyncio.CancelledError:
         pass
 
@@ -158,6 +165,7 @@ app.middleware("http")(security_headers_middleware)
 app.include_router(market.router)
 app.include_router(exchanges.router)
 app.include_router(history.router)
+app.include_router(currencies.router)
 
 # Two login routes for the same accounts: the browser takes the cookie one
 # (nothing readable ends up in the page), API clients take the bearer one.

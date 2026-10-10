@@ -8,12 +8,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_active_user
+from app.fiat.convert import RateUnavailableError, convert_candles, convert_live, resolve_currency
+from app.fiat.rates import fiat_rates
 from app.config import (
     MARKET_MAX_PAGE_SIZE,
     WS_HEARTBEAT_SECONDS,
     WS_MAX_CONNECTIONS,
     WS_MAX_CONNECTIONS_PER_IP,
 )
+from app.helpers.currencies import validate_currency
 from app.helpers.intervals import SUPPORTED_INTERVALS, validate_interval
 from app.helpers.markets import source_ticker_candidates, topic_ticker, unified_ticker
 from app.kafka.stream_hub import stream_hub
@@ -77,13 +80,14 @@ async def list_markets(db: AsyncSession = Depends(get_db)):
     available. Public; this is what a UI's market picker is built from.
     """
     result = await db.execute(
-        select(Exchange.name, Symbol.ticker, Symbol.interval)
+        select(Exchange.name, Exchange.asset_class, Symbol.ticker, Symbol.interval)
         .join(Symbol, Symbol.exchange_id == Exchange.id)
         .where(Exchange.enabled == True, Symbol.enabled == True)  # noqa: E712
     )
 
     markets: dict[str, dict[str, set]] = {}
-    for exchange_name, source_ticker, interval in result.all():
+    asset_classes: dict[str, str] = {}
+    for exchange_name, asset_class, source_ticker, interval in result.all():
         if interval not in SUPPORTED_INTERVALS:
             continue
         try:
@@ -93,10 +97,12 @@ async def list_markets(db: AsyncSession = Depends(get_db)):
         entry = markets.setdefault(unified, {"exchanges": set(), "intervals": set()})
         entry["exchanges"].add(exchange_name)
         entry["intervals"].add(interval)
+        asset_classes.setdefault(unified, asset_class or "crypto")
 
     data = [
         MarketResponse(
             ticker=ticker,
+            asset_class=asset_classes[ticker],
             exchanges=sorted(entry["exchanges"]),
             intervals=sorted(entry["intervals"], key=SUPPORTED_INTERVALS.index),
         )
@@ -117,15 +123,19 @@ async def get_candles(
     interval: str = "1m",
     limit: int = Query(100, ge=1, le=MARKET_MAX_PAGE_SIZE),
     offset: int = Query(0, ge=0),
+    currency: Optional[str] = Query(
+        None, examples=["PLN"], description="Show prices in this currency (ECB rate of each candle's date); default USD",
+    ),
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get historical candles for a ticker, in the unified format (USD prices).
-    BTC/USDT, BTC/USD and BTCUSDT all resolve to the unified BTC/USD market.
-    Optionally filter by exchange and interval.
+    Get historical candles for a ticker, in the unified format (USD prices,
+    or `currency` when given). BTC/USDT, BTC/USD and BTCUSDT all resolve to
+    the unified BTC/USD market. Optionally filter by exchange and interval.
     """
     ticker_upper = resolve_ticker(ticker)
     interval = resolve_interval(interval)
+    currency = resolve_currency(currency)
 
     query = (
         select(Candle)
@@ -151,7 +161,7 @@ async def get_candles(
     return ApiResponse(
         status="success",
         message=f"Found {len(candles)} candle(s) for {ticker_upper}",
-        data=[CandleResponse.model_validate(c) for c in candles],
+        data=await convert_candles(db, [CandleResponse.model_validate(c) for c in candles], currency),
     )
 
 
@@ -254,6 +264,7 @@ async def live_candles(
     ticker: str,
     exchange: Optional[str] = None,
     interval: Optional[str] = None,
+    currency: Optional[str] = None,
 ):
     """
     WebSocket endpoint — streams live candles for a ticker in real time.
@@ -261,6 +272,7 @@ async def live_candles(
     Connect:  ws://localhost:8000/api/v1/market/ws/live/BTCUSD
     Optional: ?exchange=binance  — one exchange only
               ?interval=1m       — one candle length only (filtered server-side)
+              ?currency=PLN      — prices in PLN (ECB daily rate), default USD
 
     BTCUSD, BTCUSDT and BTC-USDT all subscribe to the unified BTC/USD market.
     Each message is a unified-format candle (USD prices as 8-decimal strings),
@@ -311,13 +323,23 @@ async def live_candles(
                 await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unsupported interval")
                 return
 
+        wanted_currency = "USD"
+        if currency:
+            try:
+                wanted_currency = validate_currency(currency)
+            except ValueError:
+                websocket_connections_rejected_total.labels(reason="unknown_currency").inc()
+                await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Unsupported currency")
+                return
+            await fiat_rates.ensure_fresh()
+
         websocket_active_connections.labels(endpoint="live_candles").inc()
         # DEBUG, not INFO: this endpoint is unauthenticated, so an anonymous
         # client could otherwise drive unbounded log volume into Loki.
         logger.debug(f"WebSocket connected — topics: {topics}")
 
         subscription = await stream_hub.subscribe(topics)
-        await _pump(websocket, subscription, wanted_interval)
+        await _pump(websocket, subscription, wanted_interval, wanted_currency)
 
     except WebSocketDisconnect:
         logger.debug("WebSocket client disconnected")
@@ -334,7 +356,9 @@ async def live_candles(
         _release(client)
 
 
-async def _pump(websocket: WebSocket, subscription, wanted_interval: Optional[str]) -> None:
+async def _pump(
+    websocket: WebSocket, subscription, wanted_interval: Optional[str], currency: str = "USD",
+) -> None:
     """
     Forward candles to the socket, with a heartbeat.
 
@@ -352,4 +376,12 @@ async def _pump(websocket: WebSocket, subscription, wanted_interval: Optional[st
 
         if wanted_interval and payload.get("interval") != wanted_interval:
             continue
+        if currency != "USD":
+            await fiat_rates.ensure_fresh()     # no-op until the cache's TTL runs out
+            try:
+                payload = convert_live(payload, currency, fiat_rates)
+            except RateUnavailableError:
+                # Never send a USD price labelled as something else; skip until a rate exists.
+                logger.debug(f"No {currency} rate for a live candle — not sent")
+                continue
         await websocket.send_json(payload)

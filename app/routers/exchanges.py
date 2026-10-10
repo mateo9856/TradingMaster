@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.auth import current_active_user
 from app.config import MARKET_MAX_PAGE_SIZE
 from app.helpers.markets import unified_ticker
+from app.helpers.sources import asset_class_for, intervals_for_method
 from app.models.database import get_db
 from app.models.exchange import Exchange, Symbol
 from app.models.user import User
@@ -75,7 +76,7 @@ async def create_exchange(
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail=f"Exchange '{body.name}' already exists")
 
-    exchange = Exchange(name=body.name, method=body.method)
+    exchange = Exchange(name=body.name, method=body.method, asset_class=asset_class_for(body.name))
     db.add(exchange)
     await db.commit()
     await db.refresh(exchange)
@@ -150,7 +151,8 @@ def _safe_unified(ticker: str) -> str | None:
 class _SymbolIndex:
     """What an exchange already has, to reject duplicates and unified-ticker clashes."""
 
-    def __init__(self, symbols):
+    def __init__(self, symbols, method: str):
+        self._intervals = intervals_for_method(method)
         self._by_unified: dict[tuple[str, str], str] = {}
         for s in symbols:
             unified = _safe_unified(s.ticker)
@@ -160,6 +162,8 @@ class _SymbolIndex:
 
     def conflict(self, ticker: str, interval: str) -> str | None:
         """Why (ticker, interval) can't be added, or None if it can."""
+        if interval not in self._intervals:
+            return f"This exchange can't produce {interval} candles — supported: {', '.join(self._intervals)}"
         if (ticker, interval) in self._existing:
             return f"Symbol {ticker} {interval} already exists"
         unified = unified_ticker(ticker)
@@ -173,9 +177,9 @@ class _SymbolIndex:
         self._by_unified[(unified_ticker(ticker), interval)] = ticker
 
 
-async def _symbol_index(db: AsyncSession, exchange_id: int) -> _SymbolIndex:
-    result = await db.execute(select(Symbol).where(Symbol.exchange_id == exchange_id))
-    return _SymbolIndex(result.scalars().all())
+async def _symbol_index(db: AsyncSession, exchange: Exchange) -> _SymbolIndex:
+    result = await db.execute(select(Symbol).where(Symbol.exchange_id == exchange.id))
+    return _SymbolIndex(result.scalars().all(), exchange.method)
 
 
 @router.post("/{exchange_id}/symbols", response_model=ApiResponse[SymbolResponse], status_code=status.HTTP_201_CREATED)
@@ -185,9 +189,14 @@ async def create_symbol(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(current_active_user),
 ):
-    await _get_exchange_or_404(db, exchange_id)
+    exchange = await _get_exchange_or_404(db, exchange_id)
 
-    conflict = (await _symbol_index(db, exchange_id)).conflict(body.ticker, body.interval)
+    if body.interval not in intervals_for_method(exchange.method):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"{exchange.name} can't produce {body.interval} candles",
+        )
+    conflict = (await _symbol_index(db, exchange)).conflict(body.ticker, body.interval)
     if conflict:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=conflict)
 
@@ -218,8 +227,8 @@ async def create_symbols_bulk(
     already exist (or clash with another market for the same unified ticker)
     are skipped and reported, not treated as errors.
     """
-    await _get_exchange_or_404(db, exchange_id)
-    index = await _symbol_index(db, exchange_id)
+    exchange = await _get_exchange_or_404(db, exchange_id)
+    index = await _symbol_index(db, exchange)
 
     created: list[Symbol] = []
     skipped: list[SymbolSkipped] = []

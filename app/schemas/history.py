@@ -21,6 +21,8 @@ class CandleHistoryResponse(BaseModel):
     source_ticker: Optional[str] = None
     quote_currency: Optional[str] = None
     fx_rate: Optional[Price] = None
+    currency_rate: Optional[Price] = None
+    rate_date: Optional[date] = None
     archived_at: datetime
 
     class Config:

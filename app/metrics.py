@@ -141,3 +141,20 @@ candles_skipped_total = Counter(
     "Number of exchange candles dropped because they could not be converted to the unified format",
     ["exchange"],
 )
+
+fiat_rates_fetch_total = Counter(
+    "fiat_rates_fetch_total",
+    "ECB reference-rate downloads, by outcome (success|failure)",
+    ["outcome"],
+)
+
+fiat_rates_latest_date_seconds = Gauge(
+    "fiat_rates_latest_date_seconds",
+    "Unix time of the newest ECB reference-rate date stored (midnight UTC)",
+)
+
+stock_poll_errors_total = Counter(
+    "stock_poll_errors_total",
+    "Failed stock-price polls, by source",
+    ["source"],
+)

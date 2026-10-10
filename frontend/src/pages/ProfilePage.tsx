@@ -5,6 +5,8 @@ import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { CurrencySelect } from "@/components/CurrencySelect";
+import { Field } from "@/components/ui/field";
 import { useAuth } from "@/lib/auth";
 
 export function ProfilePage() {
@@ -51,6 +53,12 @@ export function ProfilePage() {
             <span className="text-muted-foreground">User id</span>
             <span className="font-mono text-xs">{user.id}</span>
           </div>
+          <Field
+            label="Preferred currency"
+            hint="Saved to your account, so prices open in it on every device"
+          >
+            {(id) => <CurrencySelect id={id} />}
+          </Field>
           {error ? <Alert tone="danger">{error}</Alert> : null}
           <Button variant="secondary" onClick={signOut} disabled={busy}>
             {busy ? "Signing out…" : "Sign out"}

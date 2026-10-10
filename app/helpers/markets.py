@@ -8,36 +8,52 @@ in USD, so each exchange market maps to one *unified ticker* `BASE/USD`:
     BTC/USD  (coinbase) ─┼─► BTC/USD
     BTC/USDC (kraken)   ─┘
 
-Only USD-equivalent quote currencies are supported; they're converted to USD
-by the producer (see app/kafka/fx_rates.py).
+Stablecoin quotes are converted to USD by the producer with live rates (see
+app/kafka/fx_rates.py); fiat quotes — a Warsaw stock in PLN, BTC/EUR — with
+the ECB daily rate (app/fiat/rates.py). A reader can ask for any of those
+currencies back on the way out (app/helpers/currencies.py).
+
+Stock symbols carry their listing venue the way Yahoo spells it, so the base
+may have one ".XX" suffix: PKN.WA/PLN → PKN.WA/USD.
 """
 
 import re
+
+from app.helpers.currencies import FIAT_CURRENCIES
 
 UNIFIED_QUOTE: str = "USD"
 
 # Longest first, so the separator-less "BTCUSDT" splits as BTC + USDT, not BTCUSD + T.
 USD_EQUIVALENT_QUOTES: tuple[str, ...] = ("USDT", "USDC", "USD")
 
+# Fiat quotes converted with the ECB daily rate. USD itself is the unified quote.
+FIAT_QUOTES: tuple[str, ...] = tuple(c for c in FIAT_CURRENCIES if c != UNIFIED_QUOTE)
+
+# Every quote a source market may have.
+SUPPORTED_QUOTES: tuple[str, ...] = USD_EQUIVALENT_QUOTES + FIAT_QUOTES
+
 # When one exchange lists several markets for the same coin, the one that feeds
-# the unified ticker is picked in this order (native USD first, no conversion).
-QUOTE_PREFERENCE: tuple[str, ...] = ("USD", "USDT", "USDC")
+# the unified ticker is picked in this order (native USD first, no conversion;
+# a daily-rate fiat conversion last).
+QUOTE_PREFERENCE: tuple[str, ...] = ("USD", "USDT", "USDC") + FIAT_QUOTES
 
 _SEPARATORS = re.compile(r"[/\-_:]")
 # Length-bounded on purpose: an unbounded base passed validation and was
 # interpolated straight into a Kafka topic name.
 MAX_BASE_LENGTH = 20
-_BASE_PATTERN = re.compile(rf"^[A-Z0-9]{{1,{MAX_BASE_LENGTH}}}$")
+# An optional ".XX" venue suffix for stocks (PKN.WA, EQNR.OL, SAP.DE).
+_BASE_PATTERN = re.compile(rf"^[A-Z0-9]{{1,{MAX_BASE_LENGTH}}}(\.[A-Z]{{1,4}})?$")
 
 
 def split_symbol(symbol: str) -> tuple[str, str]:
     """
     Splits a market symbol into (base, quote), upper-cased.
 
-    Accepts "BTC/USDT", "btc-usdt", "BTC_USDT" and the separator-less
-    "BTCUSDT" (split on a known USD-equivalent quote suffix). Raises
-    ValueError for anything that isn't a BASE/QUOTE pair with a USD-equivalent
-    quote currency.
+    Accepts "BTC/USDT", "btc-usdt", "BTC_USDT", "PKN.WA/PLN" and the
+    separator-less "BTCUSDT" (split on a known USD-equivalent quote suffix —
+    only those, so a three-letter fiat code at the end of a coin's name can't
+    be mistaken for a quote). Raises ValueError for anything that isn't a
+    BASE/QUOTE pair with a supported quote currency.
     """
     if not isinstance(symbol, str) or not symbol.strip():
         raise ValueError("Market symbol must be a non-empty string")
@@ -59,32 +75,36 @@ def split_symbol(symbol: str) -> tuple[str, str]:
 
     if not base or not _BASE_PATTERN.match(base):
         raise ValueError(f"Invalid market symbol '{symbol}' — missing base currency")
-    if quote not in USD_EQUIVALENT_QUOTES:
+    if quote not in SUPPORTED_QUOTES:
         raise ValueError(
-            f"Unsupported quote currency in '{symbol}' — supported: {', '.join(USD_EQUIVALENT_QUOTES)}"
+            f"Unsupported quote currency in '{symbol}' — supported: {', '.join(SUPPORTED_QUOTES)}"
         )
     return base, quote
 
 
 def unified_ticker(symbol: str) -> str:
-    """Unified-feed ticker for any spelling of a USD-equivalent market, e.g. "BTC/USD"."""
+    """Unified-feed ticker for any spelling of a supported market, e.g. "BTC/USD"."""
     base, _ = split_symbol(symbol)
     return f"{base}/{UNIFIED_QUOTE}"
 
 
 def topic_ticker(symbol: str) -> str:
-    """Kafka topic segment for a market — the unified ticker without separator, e.g. "BTCUSD"."""
-    return unified_ticker(symbol).replace("/", "")
+    """
+    Kafka topic segment for a market — the unified ticker without separators,
+    e.g. "BTCUSD", "PKNWAUSD". Only [A-Z0-9], which the Flink job's topic
+    pattern relies on.
+    """
+    return unified_ticker(symbol).replace("/", "").replace(".", "")
 
 
 def source_ticker_candidates(symbol: str) -> list[str]:
     """
     Every spelling an exchange might list for this market, e.g. BTC/USD →
-    ["BTC/USD", "BTC/USDT", "BTC/USDC"].
+    ["BTC/USD", "BTC/USDT", "BTC/USDC", "BTC/EUR", "BTC/PLN", ...].
 
     Lets a lookup filter on the `symbols` table in SQL instead of loading every
     enabled market and comparing unified tickers in Python — which is what
     resolving a WebSocket topic used to do, once per connection.
     """
     base, _ = split_symbol(symbol)
-    return [f"{base}/{quote}" for quote in USD_EQUIVALENT_QUOTES]
+    return [f"{base}/{quote}" for quote in SUPPORTED_QUOTES]

@@ -13,7 +13,10 @@ class Exchange(Base):
 
     id         = Column(Integer, primary_key=True, index=True)
     name       = Column(String, nullable=False, unique=True)   # "binance", "kraken"
-    method     = Column(String, nullable=False)                 # "multi", "ohlcv", "trades"
+    method     = Column(String, nullable=False)                 # "multi", "ohlcv", "trades", "poll"
+    # What the markets are — "crypto" or "stock". Lets the UI group the market
+    # picker without hard-coding which exchange carries what.
+    asset_class = Column(String(16), nullable=False, default="crypto", server_default="crypto")
     enabled    = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime, nullable=False, default=utc_now_naive)
 
@@ -29,7 +32,7 @@ class Symbol(Base):
 
     id          = Column(Integer, primary_key=True, index=True)
     exchange_id = Column(Integer, ForeignKey("exchanges.id"), nullable=False)
-    ticker      = Column(String, nullable=False)    # "BTC/USDT", "BTC/USD"
+    ticker      = Column(String, nullable=False)    # "BTC/USDT", "BTC/USD", "PKN.WA/PLN"
     interval    = Column(String, nullable=False, default="1m")
     enabled     = Column(Boolean, nullable=False, default=True)
     created_at  = Column(DateTime, nullable=False, default=utc_now_naive)

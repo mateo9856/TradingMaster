@@ -32,7 +32,7 @@ def test_symbol_create_normalizes_ticker(ticker, expected):
     assert SymbolCreate(ticker=ticker).ticker == expected
 
 
-@pytest.mark.parametrize("ticker", ["ETH/BTC", "BTC/EUR", "", "/USDT"])
+@pytest.mark.parametrize("ticker", ["ETH/BTC", "BTC/XYZ", "", "/USDT"])
 def test_symbol_create_rejects_non_usd_or_malformed_ticker(ticker):
     with pytest.raises(ValidationError):
         SymbolCreate(ticker=ticker)
@@ -94,3 +94,21 @@ def test_history_response_rejects_negative_price():
             "open_price": -1, "high_price": 1, "low_price": 1, "close_price": 1, "volume": 1,
             "archived_at": datetime(2026, 6, 24),
         })
+
+
+@pytest.mark.parametrize("ticker, expected", [("pkn.wa/pln", "PKN.WA/PLN"), ("BTC-EUR", "BTC/EUR")])
+def test_symbol_create_accepts_fiat_quotes(ticker, expected):
+    assert SymbolCreate(ticker=ticker).ticker == expected
+
+
+def test_exchange_create_accepts_the_yahoo_stock_source():
+    assert ExchangeCreate(name="yahoo", method="poll").method == "poll"
+
+
+@pytest.mark.parametrize("payload", [
+    {"name": "yahoo", "method": "multi"},      # yahoo is only ever polled
+    {"name": "binance", "method": "poll"},     # a ccxt exchange can't be polled
+])
+def test_exchange_create_rejects_a_method_the_source_cannot_use(payload):
+    with pytest.raises(ValidationError):
+        ExchangeCreate(**payload)

@@ -14,7 +14,9 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatPrice, formatTimestamp, formatVolume, todayUtc } from "@/lib/format";
+import { BASE_CURRENCY, formatMoney } from "@/lib/currency";
+import { useCurrency } from "@/lib/currency-context";
+import { formatTimestamp, formatVolume, todayUtc } from "@/lib/format";
 import { INTERVALS } from "@/lib/types";
 
 interface Search {
@@ -28,6 +30,7 @@ interface Search {
 
 export function HistoryPage() {
   const { user } = useAuth();
+  const { currency, ready: currencyReady } = useCurrency();
   const marketsQuery = useQuery({ queryKey: ["markets"], queryFn: api.markets });
   const markets = marketsQuery.data ?? [];
 
@@ -43,9 +46,10 @@ export function HistoryPage() {
   const [archiveDate, setArchiveDate] = useState(todayUtc(-1));
 
   const historyQuery = useQuery({
-    queryKey: ["history", search],
+    queryKey: ["history", search, currency],
     queryFn: () =>
       api.history({
+        currency,
         ticker: search!.ticker,
         date_from: search!.date_from,
         date_to: search!.date_to,
@@ -53,7 +57,7 @@ export function HistoryPage() {
         exchange: search!.exchange || undefined,
         limit: search!.limit,
       }),
-    enabled: search !== null,
+    enabled: search !== null && currencyReady,
     retry: (count, error) => !(error instanceof ApiError) && count < 2,
   });
 
@@ -176,10 +180,10 @@ export function HistoryPage() {
                       <th className="py-2 pr-3 font-medium">Timestamp (UTC)</th>
                       <th className="py-2 pr-3 font-medium">Exchange</th>
                       <th className="py-2 pr-3 font-medium">Source</th>
-                      <th className="py-2 pr-3 text-right font-medium">Open</th>
-                      <th className="py-2 pr-3 text-right font-medium">High</th>
-                      <th className="py-2 pr-3 text-right font-medium">Low</th>
-                      <th className="py-2 pr-3 text-right font-medium">Close</th>
+                      <th className="py-2 pr-3 text-right font-medium">Open ({currency})</th>
+                      <th className="py-2 pr-3 text-right font-medium">High ({currency})</th>
+                      <th className="py-2 pr-3 text-right font-medium">Low ({currency})</th>
+                      <th className="py-2 pr-3 text-right font-medium">Close ({currency})</th>
                       <th className="py-2 text-right font-medium">Volume</th>
                     </tr>
                   </thead>
@@ -189,10 +193,10 @@ export function HistoryPage() {
                         <td className="tabular py-1.5 pr-3">{formatTimestamp(row.timestamp)}</td>
                         <td className="py-1.5 pr-3">{row.exchange}</td>
                         <td className="py-1.5 pr-3 text-muted-foreground">{row.source_ticker ?? "—"}</td>
-                        <td className="tabular py-1.5 pr-3 text-right">{formatPrice(row.open_price)}</td>
-                        <td className="tabular py-1.5 pr-3 text-right">{formatPrice(row.high_price)}</td>
-                        <td className="tabular py-1.5 pr-3 text-right">{formatPrice(row.low_price)}</td>
-                        <td className="tabular py-1.5 pr-3 text-right">{formatPrice(row.close_price)}</td>
+                        <td className="tabular py-1.5 pr-3 text-right">{formatMoney(row.open_price, currency)}</td>
+                        <td className="tabular py-1.5 pr-3 text-right">{formatMoney(row.high_price, currency)}</td>
+                        <td className="tabular py-1.5 pr-3 text-right">{formatMoney(row.low_price, currency)}</td>
+                        <td className="tabular py-1.5 pr-3 text-right">{formatMoney(row.close_price, currency)}</td>
                         <td className="tabular py-1.5 text-right">{formatVolume(row.volume)}</td>
                       </tr>
                     ))}
@@ -200,6 +204,9 @@ export function HistoryPage() {
                 </table>
                 <p className="mt-2 text-xs text-muted-foreground">
                   {rows.length} row{rows.length === 1 ? "" : "s"} (limit {search?.limit})
+                  {currency !== BASE_CURRENCY
+                    ? ` · stored in USD, converted to ${currency} at each day's ECB reference rate`
+                    : ""}
                 </p>
               </div>
             ) : (

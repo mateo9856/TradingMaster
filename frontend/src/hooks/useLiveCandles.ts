@@ -1,8 +1,8 @@
 /**
  * Live candles over the market WebSocket.
  *
- * ws://…/api/v1/market/ws/live/{TICKER}?exchange=… pushes one unified candle
- * per message. The same window is pushed repeatedly as it develops, so the
+ * ws://…/api/v1/market/ws/live/{TICKER}?exchange=…&currency=… pushes one
+ * unified candle per message, with prices in the requested currency. The same window is pushed repeatedly as it develops, so the
  * consumer updates the last bar rather than appending.
  *
  * Close codes that matter:
@@ -32,6 +32,8 @@ export interface UseLiveCandlesOptions {
   ticker: string | null;
   interval: string;
   exchange?: string;
+  /** Prices in this currency (converted server-side); USD when omitted. */
+  currency?: string;
   /** Called for every message whose interval matches — used to update the chart. */
   onCandle?: (candle: LiveCandle) => void;
   enabled?: boolean;
@@ -41,6 +43,7 @@ export function useLiveCandles({
   ticker,
   interval,
   exchange,
+  currency,
   onCandle,
   enabled = true,
 }: UseLiveCandlesOptions): LiveCandlesState {
@@ -86,7 +89,11 @@ export function useLiveCandles({
 
     const url = () => {
       const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const params = exchange ? `?exchange=${encodeURIComponent(exchange)}` : "";
+      const search = new URLSearchParams();
+      if (exchange) search.set("exchange", exchange);
+      if (currency && currency !== "USD") search.set("currency", currency);
+      const qs = search.toString();
+      const params = qs ? `?${qs}` : "";
       return `${scheme}//${window.location.host}/api/v1/market/ws/live/${toWsSegment(ticker)}${params}`;
     };
 
@@ -129,13 +136,13 @@ export function useLiveCandles({
       clearTimeout(reconnectTimer);
       socket?.close();
     };
-  }, [ticker, exchange, enabled, handleMessage]);
+  }, [ticker, exchange, currency, enabled, handleMessage]);
 
-  // A change of market or interval starts a fresh picture.
+  // A change of market, interval or currency starts a fresh picture.
   useEffect(() => {
     setLastMessage(null);
     setMessageCount(0);
-  }, [ticker, exchange, interval]);
+  }, [ticker, exchange, interval, currency]);
 
   return { status, error, lastMessage, messageCount };
 }

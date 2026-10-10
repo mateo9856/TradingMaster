@@ -155,3 +155,48 @@ describe("defaults", () => {
     expect(await screen.findByLabelText("Market")).toHaveValue("SOL/USD");
   });
 });
+
+describe("display currency", () => {
+  it("asks the API for prices in PLN and shows them as PLN", async () => {
+    localStorage.setItem("tradingmaster.currency", "PLN");
+    const socket = installFakeWebSocket();
+    const requested: URL[] = [];
+    server.use(
+      http.get("/api/v1/market/candles/*", ({ request }) => {
+        const url = new URL(request.url);
+        requested.push(url);
+        return HttpResponse.json(
+          envelope([
+            candle({
+              close_price: "255047.69000000",
+              open_price: "254000.00000000",
+              quote_currency: "PLN",
+              currency_rate: "3.91174371",
+              rate_date: "2026-10-09",
+            }),
+          ]),
+        );
+      }),
+    );
+
+    renderApp(<LivePage />);
+
+    expect(await screen.findByText("PLN rate (ECB)")).toBeInTheDocument();
+    expect(screen.getByText("1 USD = 3.9117 PLN")).toBeInTheDocument();
+    expect(screen.getByText(/Reference rate of 2026-10-09/)).toBeInTheDocument();
+    expect(screen.getByText("BTC/PLN · 1m")).toBeInTheDocument();
+    expect(requested.every((url) => url.searchParams.get("currency") === "PLN")).toBe(true);
+    expect(socket.last.url).toContain("currency=PLN");
+  });
+
+  it("groups crypto and stocks in the market picker", async () => {
+    installFakeWebSocket();
+
+    renderApp(<LivePage />);
+
+    await screen.findByTestId("candle-chart");
+    const groups = within(screen.getByLabelText("Market")).getAllByRole("group");
+    expect(groups.map((g) => g.getAttribute("label"))).toEqual(["Crypto", "Stocks"]);
+    expect(within(groups[1]).getByRole("option")).toHaveTextContent("PKN.WA/USD");
+  });
+});

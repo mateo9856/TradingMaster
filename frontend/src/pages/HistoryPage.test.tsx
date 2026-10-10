@@ -23,7 +23,7 @@ describe("searching archived candles", () => {
     const table = within(screen.getByRole("table"));
     expect(table.getByText("binance")).toBeInTheDocument();
     expect(table.getByText("BTC/USDT")).toBeInTheDocument();
-    expect(table.getByText("65,200.00")).toBeInTheDocument();
+    expect(table.getByText("$65,200.00")).toBeInTheDocument();
     expect(screen.getByText(/1 row/)).toBeInTheDocument();
   });
 

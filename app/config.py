@@ -54,6 +54,25 @@ PRODUCER_CONFIG_REFRESH_SECONDS: int = int(os.getenv("PRODUCER_CONFIG_REFRESH_SE
 FX_REFERENCE_EXCHANGE: str = os.getenv("FX_REFERENCE_EXCHANGE", "kraken")
 FX_MAX_AGE_SECONDS: int = int(os.getenv("FX_MAX_AGE_SECONDS", "300"))
 
+# Other display currencies (EUR, PLN, NOK, …): prices stay stored in USD and are
+# converted when read, with the ECB daily reference rate for each candle's date
+# (app/fiat/rates.py). The same rates convert fiat-quoted markets — a Warsaw
+# stock in PLN — to USD on the way in.
+#
+# DEFAULT_CURRENCY is only a hint for the UI, used when the browser's time zone
+# and language don't identify a supported currency. API responses default to
+# USD whatever it says, so existing clients see no change.
+DEFAULT_CURRENCY: str = os.getenv("DEFAULT_CURRENCY", "USD").strip().upper() or "USD"
+FIAT_RATES_REFRESH_SECONDS: int = int(os.getenv("FIAT_RATES_REFRESH_SECONDS", "3600"))
+# How long a process keeps its in-memory copy of the rates before re-reading the DB.
+FIAT_CACHE_SECONDS: int = int(os.getenv("FIAT_CACHE_SECONDS", "600"))
+ECB_DAILY_URL: str = os.getenv("ECB_DAILY_URL", "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")
+ECB_HISTORY_URL: str = os.getenv("ECB_HISTORY_URL", "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml")
+
+# Stocks come from Yahoo Finance (app/kafka/yahoo_source.py), polled — Yahoo has
+# no streaming API. Quotes are delayed ~15 minutes by the exchanges' licensing.
+YAHOO_POLL_SECONDS: int = int(os.getenv("YAHOO_POLL_SECONDS", "60"))
+
 # Exchange API keys — optional, only needed for private/trading endpoints
 # Public candle/ticker streams work without keys
 EXCHANGE_CREDENTIALS: dict = {

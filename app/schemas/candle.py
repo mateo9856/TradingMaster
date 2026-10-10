@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated, Optional
 
@@ -52,8 +52,14 @@ class CandleResponse(CandleBase):
     id: int
     timestamp: datetime = Field(..., description="Timestamp of the candle")
     source_ticker: Optional[str] = Field(None, description="The exchange's own market, e.g. BTC/USDT")
-    quote_currency: Optional[str] = Field(None, examples=["USD"])
+    quote_currency: Optional[str] = Field(
+        None, examples=["USD", "PLN"], description="Currency the prices are in — the requested `currency`",
+    )
     fx_rate: Optional[Price] = Field(None, description="Rate applied to convert the native quote to USD")
+    currency_rate: Optional[Price] = Field(
+        None, description="ECB rate applied to show USD prices in `quote_currency` (units per USD); absent for USD",
+    )
+    rate_date: Optional[date] = Field(None, description="Publication date of `currency_rate`")
 
     class Config:
         from_attributes = True

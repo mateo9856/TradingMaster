@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import current_active_user
 from app.config import HISTORY_MAX_RANGE_DAYS, HISTORY_MAX_PAGE_SIZE
+from app.fiat.convert import convert_candles, resolve_currency
 from app.helpers.intervals import validate_interval
 from app.helpers.time import utc_now_naive
 from app.jobs.eod_archive import ArchiveLockedError, NothingToReplaceError, run_eod_job
@@ -151,15 +152,18 @@ async def get_history(
     interval:  str = "1m",
     limit:     int = Query(1000, ge=1, le=HISTORY_MAX_PAGE_SIZE),
     offset:    int = Query(0, ge=0),
+    currency:  Optional[str] = Query(None, examples=["PLN"], description="Show prices in this currency; default USD"),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Query archived candle history for a ticker and date range.
-    Returns up to `limit` rows ordered by timestamp ascending.
-    Any spelling of a USD-equivalent market resolves to the unified ticker (BTC/USDT → BTC/USD).
+    Returns up to `limit` rows ordered by timestamp ascending, in USD or `currency`
+    (converted with the ECB rate of each candle's date).
+    Any spelling of a supported market resolves to the unified ticker (BTC/USDT → BTC/USD).
     """
     ticker_upper = resolve_ticker(ticker)
     interval = _resolve_interval(interval)
+    currency = resolve_currency(currency)
 
     # Both bounds were previously unvalidated, so a single request could ask for
     # every row the table has ever held.
@@ -204,5 +208,5 @@ async def get_history(
     return ApiResponse(
         status="success",
         message=f"Found {len(rows)} candle(s) for {ticker_upper}",
-        data=[CandleHistoryResponse.model_validate(r) for r in rows],
+        data=await convert_candles(db, [CandleHistoryResponse.model_validate(r) for r in rows], currency),
     )

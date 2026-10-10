@@ -9,6 +9,7 @@
 import type {
   ApiResponse,
   Candle,
+  Currencies,
   HistoryCandle,
   Market,
   User,
@@ -142,6 +143,8 @@ export const api = {
     interval: string;
     exchange?: string;
     limit?: number;
+    /** Prices in this currency (ECB rate of each candle's date); USD when omitted. */
+    currency?: string;
   }): Promise<Candle[]> {
     const { ticker, ...rest } = params;
     return requestData<Candle[]>(
@@ -157,11 +160,17 @@ export const api = {
     interval?: string;
     exchange?: string;
     limit?: number;
+    currency?: string;
   }): Promise<HistoryCandle[]> {
     const { ticker, ...rest } = params;
     return requestData<HistoryCandle[]>(
       `/api/v1/history/${encodeURIComponent(ticker)}${query(rest)}`,
     );
+  },
+
+  /** Currencies prices can be shown in, with their latest ECB rate. Public. */
+  currencies(): Promise<Currencies> {
+    return requestData<Currencies>("/api/v1/currencies");
   },
 
   /** Triggers the end-of-day archive for one date. Requires a logged-in user. */
@@ -210,6 +219,15 @@ export const api = {
 
   me(): Promise<User> {
     return request<User>("/api/v1/users/me");
+  },
+
+  /** Updates the signed-in user's own profile (e.g. the preferred currency). */
+  updateMe(patch: Partial<Pick<User, "preferred_currency">>): Promise<User> {
+    return request<User>("/api/v1/users/me", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
   },
 
   /** Ends the session server-side; the response clears the cookie. */

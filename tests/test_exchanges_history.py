@@ -240,7 +240,7 @@ async def test_create_symbol_normalizes_ticker_spelling(client, exchange):
     {"ticker": "BTC/USDT", "interval": "7m"},
     {"ticker": "BTC/USDT", "interval": "15m"},
     {"ticker": "ETH/BTC", "interval": "1m"},
-    {"ticker": "BTC/EUR", "interval": "1m"},
+    {"ticker": "BTC/XYZ", "interval": "1m"},
     {"ticker": "", "interval": "1m"},
 ])
 async def test_create_symbol_rejects_unsupported_interval_or_quote(client, exchange, payload):

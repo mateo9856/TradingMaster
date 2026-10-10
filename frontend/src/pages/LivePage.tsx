@@ -3,7 +3,8 @@
  *
  * History comes from the REST endpoint, then the WebSocket keeps the last
  * candle moving. The raw message panel shows that a Binance candle and a
- * Coinbase candle really do arrive in the same shape, in USD.
+ * Coinbase candle really do arrive in the same shape — in USD as stored, or
+ * converted by the API into the display currency (header picker).
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -18,17 +19,28 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Select } from "@/components/ui/field";
 import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { ApiError, api } from "@/lib/api";
+import { BASE_CURRENCY, displayTicker, formatMoney } from "@/lib/currency";
+import { useCurrency } from "@/lib/currency-context";
 import { formatChange, formatPrice, formatTimestamp, formatVolume } from "@/lib/format";
-import type { Candle, LiveCandle, Market } from "@/lib/types";
+import type { AssetClass, Candle, LiveCandle, Market } from "@/lib/types";
 
 const CANDLE_LIMIT = 300;
 const DEFAULT_TICKER = "BTC/USD";
+
+const ASSET_GROUPS: { assetClass: AssetClass; label: string }[] = [
+  { assetClass: "crypto", label: "Crypto" },
+  { assetClass: "stock", label: "Stocks" },
+];
 
 export function LivePage() {
   const [ticker, setTicker] = useState<string | null>(null);
   const [interval, setInterval] = useState("1m");
   const [exchange, setExchange] = useState<string | null>(null);
   const [liveCandle, setLiveCandle] = useState<LiveCandle | null>(null);
+  const { currency, ready: currencyReady } = useCurrency();
+
+  // A candle in the old currency must not be drawn on a chart in the new one.
+  useEffect(() => setLiveCandle(null), [currency]);
 
   const marketsQuery = useQuery({ queryKey: ["markets"], queryFn: api.markets });
   const markets = marketsQuery.data ?? [];
@@ -48,15 +60,16 @@ export function LivePage() {
   }, [market, ticker, exchange, interval]);
 
   const candlesQuery = useQuery({
-    queryKey: ["candles", market?.ticker, interval, exchange],
+    queryKey: ["candles", market?.ticker, interval, exchange, currency],
     queryFn: () =>
       api.candles({
         ticker: market!.ticker,
         interval,
         exchange: exchange ?? undefined,
         limit: CANDLE_LIMIT,
+        currency,
       }),
-    enabled: Boolean(market && exchange),
+    enabled: Boolean(market && exchange && currencyReady),
     // "No candles yet" is a 404 from this API — a state to show, not to retry.
     retry: (count, error) => !(error instanceof ApiError) && count < 2,
   });
@@ -65,16 +78,17 @@ export function LivePage() {
     ticker: market?.ticker ?? null,
     interval,
     exchange: exchange ?? undefined,
-    enabled: Boolean(market && exchange),
+    currency,
+    enabled: Boolean(market && exchange && currencyReady),
     onCandle: setLiveCandle,
   });
 
   // Latest close per exchange — the cross-exchange comparison the unified feed enables.
   const perExchange = useQueries({
     queries: (market?.exchanges ?? []).map((name) => ({
-      queryKey: ["latest", market?.ticker, interval, name],
-      queryFn: () => api.candles({ ticker: market!.ticker, interval, exchange: name, limit: 1 }),
-      enabled: Boolean(market),
+      queryKey: ["latest", market?.ticker, interval, name, currency],
+      queryFn: () => api.candles({ ticker: market!.ticker, interval, exchange: name, limit: 1, currency }),
+      enabled: Boolean(market && currencyReady),
       refetchInterval: 15_000,
       retry: false,
     })),
@@ -92,6 +106,8 @@ export function LivePage() {
       rising: Number(close) >= Number(oldest.open_price),
       volume: liveCandle?.volume ?? newest.volume,
       fxRate: liveCandle?.fx_rate ?? newest.fx_rate,
+      currencyRate: liveCandle?.currency_rate ?? newest.currency_rate ?? null,
+      rateDate: liveCandle?.rate_date ?? newest.rate_date ?? null,
       sourceTicker: liveCandle?.source_ticker ?? newest.source_ticker,
       timestamp: liveCandle?.timestamp ?? newest.timestamp,
     };
@@ -119,16 +135,23 @@ export function LivePage() {
     );
   }
 
+  const shownTicker = displayTicker(market.ticker, currency);
+  const isStock = market.asset_class === "stock";
+  const conversion =
+    currency === BASE_CURRENCY
+      ? stats?.sourceTicker && stats.sourceTicker !== market.ticker
+        ? `${exchange} trades this as ${stats.sourceTicker}; prices converted to USD`
+        : "Prices in USD, exactly as stored"
+      : `Stored in USD, shown in ${currency} at the ECB reference rate${
+          stats?.rateDate ? ` of ${stats.rateDate}` : ""
+        }`;
+
   return (
     <div className="flex flex-col gap-4">
       <Card>
         <CardHeader
-          title={`${market.ticker} · ${interval}`}
-          description={
-            stats?.sourceTicker && stats.sourceTicker !== market.ticker
-              ? `${exchange} trades this as ${stats.sourceTicker}; prices converted to USD`
-              : "Prices in USD, exactly as stored"
-          }
+          title={`${shownTicker} · ${interval}`}
+          description={isStock ? `${conversion} · stock quotes are delayed about 15 minutes` : conversion}
           actions={<ConnectionBadge status={live.status} error={live.error} count={live.messageCount} />}
         />
         <CardBody className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -142,11 +165,18 @@ export function LivePage() {
                   setLiveCandle(null);
                 }}
               >
-                {markets.map((option) => (
-                  <option key={option.ticker} value={option.ticker}>
-                    {option.ticker}
-                  </option>
-                ))}
+                {ASSET_GROUPS.map(({ assetClass, label }) => {
+                  const options = markets.filter((m) => (m.asset_class ?? "crypto") === assetClass);
+                  return options.length ? (
+                    <optgroup key={assetClass} label={label}>
+                      {options.map((option) => (
+                        <option key={option.ticker} value={option.ticker}>
+                          {displayTicker(option.ticker, currency)}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : null;
+                })}
               </Select>
             )}
           </Field>
@@ -200,25 +230,33 @@ export function LivePage() {
 
       {stats ? (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <StatTile label="Last price" value={`$${formatPrice(stats.close)}`} tone={stats.rising ? "up" : "down"} />
+          <StatTile label="Last price" value={formatMoney(stats.close, currency)} tone={stats.rising ? "up" : "down"} />
           <StatTile label={`Change (${candles.length} candles)`} value={stats.change} tone={stats.rising ? "up" : "down"} />
           <StatTile label="Volume (last candle)" value={formatVolume(stats.volume)} />
-          <StatTile
-            label="USD conversion"
-            value={stats.fxRate ? formatPrice(stats.fxRate) : "1.00000000"}
-            hint={stats.sourceTicker ?? market.ticker}
-          />
+          {currency === BASE_CURRENCY || !stats.currencyRate ? (
+            <StatTile
+              label="USD conversion"
+              value={stats.fxRate ? formatPrice(stats.fxRate) : "1.00000000"}
+              hint={stats.sourceTicker ?? market.ticker}
+            />
+          ) : (
+            <StatTile
+              label={`${currency} rate (ECB)`}
+              value={`1 USD = ${formatPrice(stats.currencyRate)} ${currency}`}
+              hint={stats.rateDate ? `Reference rate of ${stats.rateDate}` : undefined}
+            />
+          )}
         </div>
       ) : null}
 
       <Card>
-        <CardHeader title="Price" description={`${exchange} · ${market.ticker} · ${interval}`} />
+        <CardHeader title="Price" description={`${exchange} · ${shownTicker} · ${interval}`} />
         <CardBody>
           {candlesQuery.isPending ? (
             <p className="text-sm text-muted-foreground">Loading candles…</p>
           ) : candlesQuery.error instanceof ApiError && candlesQuery.error.isNotFound ? (
             <Alert tone="warning" title="No candles stored yet">
-              Nothing has been saved for {market.ticker} {interval} on {exchange}. Check that the producer
+              Nothing has been saved for {shownTicker} {interval} on {exchange}. Check that the producer
               and the Flink job are running — the live stream below still works without them.
             </Alert>
           ) : candlesQuery.isError ? (
@@ -246,7 +284,7 @@ export function LivePage() {
                   <span className="font-medium">{name}</span>
                   {latest ? (
                     <span className="tabular text-muted-foreground">
-                      ${formatPrice(latest.close_price)}{" "}
+                      {formatMoney(latest.close_price, currency)}{" "}
                       <span className="text-xs">({formatTimestamp(latest.timestamp, false)} UTC)</span>
                     </span>
                   ) : (

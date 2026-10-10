@@ -2,10 +2,13 @@ from sqlalchemy import select
 
 from app.helpers.intervals import SUPPORTED_INTERVALS
 from app.helpers.markets import unified_ticker
+from app.helpers.sources import POLL_INTERVALS
 from app.models.exchange import Exchange, Symbol
 from app.models.seeder import DEFAULT_EXCHANGES, DEFAULT_INTERVALS, seed_exchanges
 
-TOTAL_TICKERS = sum(len(e["tickers"]) for e in DEFAULT_EXCHANGES)
+# Every default market at every interval its exchange produces (no 30s for stocks).
+TOTAL_ROWS = sum(len(e["tickers"]) * len(e.get("intervals", DEFAULT_INTERVALS)) for e in DEFAULT_EXCHANGES)
+EXCHANGE_NAMES = {"binance", "kraken", "coinbase", "yahoo"}
 
 
 async def symbol_rows(db):
@@ -18,8 +21,8 @@ async def test_seed_inserts_every_default_ticker_at_every_interval(db_session):
 
     exchanges = (await db_session.execute(select(Exchange))).scalars().all()
     rows = await symbol_rows(db_session)
-    assert {e.name for e in exchanges} == {"binance", "kraken", "coinbase"}
-    assert len(rows) == TOTAL_TICKERS * len(DEFAULT_INTERVALS)
+    assert {e.name for e in exchanges} == EXCHANGE_NAMES
+    assert len(rows) == TOTAL_ROWS
     assert ("binance", "SOL/USDT", "30s") in rows
     assert ("coinbase", "BTC/USD", "1d") in rows
 
@@ -32,7 +35,7 @@ async def test_seed_is_idempotent(db_session):
 
     assert await symbol_rows(db_session) == first
     exchanges = (await db_session.execute(select(Exchange))).scalars().all()
-    assert len(exchanges) == 3
+    assert len(exchanges) == len(EXCHANGE_NAMES)
 
 
 async def test_seed_upgrades_an_existing_1m_only_database(db_session):
@@ -51,7 +54,7 @@ async def test_seed_upgrades_an_existing_1m_only_database(db_session):
 
     rows = await symbol_rows(db_session)
     assert {i for (e, t, i) in rows if (e, t) == ("binance", "BTC/USDT")} == set(SUPPORTED_INTERVALS)
-    assert len(rows) == TOTAL_TICKERS * len(DEFAULT_INTERVALS)
+    assert len(rows) == TOTAL_ROWS
     # Existing rows are never modified
     eth = (await db_session.execute(
         select(Symbol).where(
@@ -89,9 +92,30 @@ async def test_seed_survives_legacy_rows_with_unsupported_quote(db_session):
 
 
 def test_default_configuration_covers_many_pairs_and_all_intervals():
-    assert {item["name"] for item in DEFAULT_EXCHANGES} == {"binance", "kraken", "coinbase"}
+    assert {item["name"] for item in DEFAULT_EXCHANGES} == EXCHANGE_NAMES
     assert all(len(item["tickers"]) >= 15 for item in DEFAULT_EXCHANGES)
     assert DEFAULT_INTERVALS == ("30s", "1m", "5m", "1h", "1d")
+
+
+async def test_seed_adds_stocks_without_30s_and_marks_them_as_stocks(db_session):
+    await seed_exchanges(db_session)
+
+    yahoo = (await db_session.execute(select(Exchange).where(Exchange.name == "yahoo"))).scalar_one()
+    rows = await symbol_rows(db_session)
+    assert yahoo.method == "poll"
+    assert yahoo.asset_class == "stock"
+    assert ("yahoo", "PKN.WA/PLN", "1m") in rows
+    assert ("yahoo", "AAPL/USD", "1d") in rows
+    assert {i for (e, _, i) in rows if e == "yahoo"} == set(POLL_INTERVALS)
+    binance = (await db_session.execute(select(Exchange).where(Exchange.name == "binance"))).scalar_one()
+    assert binance.asset_class == "crypto"
+
+
+def test_default_stocks_cover_poland_and_the_us():
+    yahoo = next(item for item in DEFAULT_EXCHANGES if item["name"] == "yahoo")
+    quotes = {t.split("/")[1] for t in yahoo["tickers"]}
+    assert {"USD", "PLN", "EUR", "NOK"} <= quotes
+    assert sum(t.endswith(".WA/PLN") for t in yahoo["tickers"]) >= 10
 
 
 def test_default_tickers_are_valid_and_unique_per_unified_ticker():

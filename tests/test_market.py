@@ -95,7 +95,7 @@ async def test_get_candles_not_found(client):
     assert "DOGE/USD" in response.json()["detail"]
 
 
-@pytest.mark.parametrize("ticker", ["INVALID", "ETH%2FBTC", "BTC%2FEUR"])
+@pytest.mark.parametrize("ticker", ["INVALID", "ETH%2FBTC", "BTC%2FXYZ"])
 async def test_get_candles_unsupported_market_returns_422(client, ticker):
     response = await client.get(f"/api/v1/market/candles/{ticker}")
 
@@ -314,7 +314,7 @@ async def test_list_markets_merges_exchanges_per_unified_ticker(client, markets,
     # binance feeds it from BTC/USDT, kraken from BTC/USD — one entry, both exchanges
     assert btc["exchanges"] == ["binance", "kraken"]
     assert btc["intervals"] == ["30s", "1m"]          # sorted shortest first
-    assert data[1] == {"ticker": "SOL/USD", "exchanges": ["binance"], "intervals": ["1d"]}
+    assert data[1] == {"ticker": "SOL/USD", "asset_class": "crypto", "exchanges": ["binance"], "intervals": ["1d"]}
 
 
 async def test_list_markets_excludes_disabled_exchanges_and_symbols(client, markets):

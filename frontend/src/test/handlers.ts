@@ -1,15 +1,26 @@
 import { HttpResponse, http } from "msw";
 
-import type { Candle, HistoryCandle, LiveCandle, Market, User } from "@/lib/types";
+import type { Candle, Currencies, HistoryCandle, LiveCandle, Market, User } from "@/lib/types";
 
 export function envelope<T>(data: T, message = "ok") {
   return { status: "success", message, data };
 }
 
 export const MARKETS: Market[] = [
-  { ticker: "BTC/USD", exchanges: ["binance", "kraken"], intervals: ["30s", "1m", "1h"] },
-  { ticker: "ETH/USD", exchanges: ["binance"], intervals: ["1m"] },
+  { ticker: "BTC/USD", asset_class: "crypto", exchanges: ["binance", "kraken"], intervals: ["30s", "1m", "1h"] },
+  { ticker: "ETH/USD", asset_class: "crypto", exchanges: ["binance"], intervals: ["1m"] },
+  { ticker: "PKN.WA/USD", asset_class: "stock", exchanges: ["yahoo"], intervals: ["1m", "1d"] },
 ];
+
+export const CURRENCIES: Currencies = {
+  default: "USD",
+  currencies: [
+    { code: "USD", name: "US dollar", units_per_usd: "1.00000000", rate_date: null },
+    { code: "EUR", name: "Euro", units_per_usd: "0.89237908", rate_date: "2026-10-09" },
+    { code: "PLN", name: "Polish złoty", units_per_usd: "3.91174371", rate_date: "2026-10-09" },
+    { code: "NOK", name: "Norwegian krone", units_per_usd: "9.56228806", rate_date: "2026-10-09" },
+  ],
+};
 
 export function candle(overrides: Partial<Candle> = {}): Candle {
   return {
@@ -68,6 +79,7 @@ export const USER: User = {
 
 export const handlers = [
   http.get("/api/v1/market/markets", () => HttpResponse.json(envelope(MARKETS))),
+  http.get("/api/v1/currencies", () => HttpResponse.json(envelope(CURRENCIES))),
   http.get("/api/v1/market/candles/*", () => HttpResponse.json(envelope([candle()]))),
   http.get("/api/v1/history/*", () => HttpResponse.json(envelope([historyCandle()]))),
   http.get("/health", () => HttpResponse.json({ status: "ok" })),

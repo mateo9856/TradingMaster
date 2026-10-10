@@ -23,6 +23,11 @@ fastapi-users[sqlalchemy]>=15.0.0   # user registration/login + JWT auth
  
 # ── Exchange connectivity ─────────────────────────────────────────────────────
 ccxt[pro]                  # WebSocket streams: Binance, Kraken, Coinbase etc.
+yfinance                   # stocks (US, Warsaw GPW, Xetra, Oslo) — polled, no API key
+
+# ── Display currencies ────────────────────────────────────────────────────────
+httpx                      # ECB reference-rate downloads (app/fiat/rates.py)
+defusedxml                 # parses the ECB XML without entity expansion
  
 # ── Kafka transport ───────────────────────────────────────────────────────────
 aiokafka                   # async Kafka producer/consumer

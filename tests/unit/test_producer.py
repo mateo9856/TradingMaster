@@ -631,3 +631,54 @@ async def test_stream_exchange_refuses_a_name_ccxt_does_not_know():
         ccxt.exchanges = ["binance", "kraken", "coinbase"]
         with pytest.raises(ValueError, match="not a ccxt exchange id"):
             await _stream_exchange(config, AsyncMock())
+
+
+# ── Fiat-quoted markets (stocks in PLN/EUR/NOK) ──────────────────────────────
+
+async def test_send_candle_converts_a_fiat_quote_with_the_ecb_rate_of_the_candle_date():
+    from datetime import date
+
+    from app.fiat.rates import FiatRateCache
+
+    cache = FiatRateCache()
+    cache.load([("PLN", date(2023, 11, 14), Decimal("4"))])
+    kafka = AsyncMock()
+
+    with patch.object(producer_module, "fiat_rates", cache):
+        # 1_700_000_000_000 ms = 2023-11-14T22:13:20Z
+        await _send_candle(kafka, "yahoo", "PKN.WA/PLN", "1m", [1_700_000_000_000, 60, 61, 59, 60.5, 100])
+
+    topic, = kafka.send.call_args.args
+    payload = json.loads(kafka.send.call_args.kwargs["value"])
+    assert topic == "yahoo.PKNWAUSD.candles"
+    assert payload["ticker"] == "PKN.WA/USD"
+    assert payload["source_ticker"] == "PKN.WA/PLN"
+    assert payload["close_price"] == "15.12500000"
+    assert payload["fx_rate"] == "0.25000000"
+
+
+async def test_send_candle_drops_a_fiat_candle_while_no_rate_is_known():
+    from app.fiat.rates import FiatRateCache
+
+    cache = FiatRateCache()
+    cache.load([])
+    kafka = AsyncMock()
+
+    with patch.object(producer_module, "fiat_rates", cache):
+        await _send_candle(kafka, "yahoo", "SAP.DE/EUR", "1m", [1_700_000_000_000, 1, 1, 1, 1, 1])
+
+    kafka.send.assert_not_awaited()
+
+
+async def test_stream_exchange_hands_non_ccxt_sources_to_their_own_stream():
+    calls = []
+
+    async def fake_stream(exc_config, send):
+        calls.append(exc_config["name"])
+
+    with patch.dict(producer_module.NON_CCXT_STREAMS, {"yahoo": fake_stream}), \
+         patch.object(producer_module, "ccxtpro") as ccxt:
+        await _stream_exchange({"name": "yahoo", "method": "poll", "symbols": {"AAPL/USD": ["1m"]}}, AsyncMock())
+
+    assert calls == ["yahoo"]
+    assert not ccxt.mock_calls          # never reaches ccxt

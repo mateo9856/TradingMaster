@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from "react-router-dom";
 
+import { CurrencySelect } from "@/components/CurrencySelect";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -40,7 +41,8 @@ export function AppShell() {
             ))}
           </nav>
 
-          <div className="ml-auto text-sm">
+          <div className="ml-auto flex items-center gap-4 text-sm">
+            <CurrencySelect aria-label="Currency" className="h-8 w-auto" />
             {user ? (
               <NavLink to="/profile" className="text-muted-foreground hover:text-foreground">
                 {user.email}
