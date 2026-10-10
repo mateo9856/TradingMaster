@@ -4,21 +4,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project overview
 
-TradingMaster is a real-time cryptocurrency market-data service. It collects OHLCV candle data from Binance, Kraken, and Coinbase via CCXT Pro, publishes it to Kafka, persists it in PostgreSQL/TimescaleDB through Apache Flink, and exposes it through a FastAPI REST/WebSocket API.
+TradingMaster is a real-time market-data service for crypto and stocks. It collects OHLCV candle data from Binance, Kraken, and Coinbase via CCXT Pro (plus stocks polled from Yahoo Finance), publishes it to Kafka, persists it in PostgreSQL/TimescaleDB through Apache Flink, and exposes it through a FastAPI REST/WebSocket API.
 
 ```
 Binance / Kraken / Coinbase -> CCXT Pro -> FastAPI producer -> Kafka -> Flink -> TimescaleDB
                                                                     └-> FastAPI WebSocket -> React UI (frontend/)
 ```
 
-Markets (exchange + ticker + interval) live in the DB (`exchanges`/`symbols` tables), not in env config. The seeder adds about 50 default pairs at `30s`/`1m`/`5m`/`1h`/`1d`. The producer runs one streaming task per configured exchange, reconnects after exchange errors, and re-reads the DB every `PRODUCER_CONFIG_REFRESH_SECONDS` (default 60), so markets added through the API are picked up without a restart.
+Markets (exchange + ticker + interval) live in the DB (`exchanges`/`symbols` tables), not in env config. The seeder adds about 100 default crypto pairs at `30s`/`1m`/`5m`/`1h`/`1d`, plus 25 stocks on the `yahoo` source (no `30s`). The producer runs one streaming task per configured exchange, reconnects after exchange errors, and re-reads the DB every `PRODUCER_CONFIG_REFRESH_SECONDS` (default 60), so markets added through the API are picked up without a restart.
 
 **Unified market feed:** every candle has one format for all exchanges.
-- `ticker` is the unified `BASE/USD` market, and the exchange's own market is in `source_ticker`.
+- `ticker` is the unified `BASE/USD` market, and the exchange's own market is in `source_ticker`. Stock bases carry a Yahoo venue suffix (`PKN.WA/PLN` → `PKN.WA/USD`, topic `yahoo.PKNWAUSD.candles`).
 - USDT/USDC prices are converted to USD with live Kraken rates (`fx_rate`); the 1:1 peg is the fallback.
+- Fiat-quoted markets (PLN/EUR/NOK… — the ECB set in `app/helpers/currencies.py`) are converted to USD on ingest with the ECB daily rate for the candle's date (`app/fiat/rates.py`, table `fiat_rates`); a candle with no rate yet is dropped, not mislabelled.
 - Prices and volume are exact decimals: `NUMERIC(28,8)` in the DB and 8-decimal strings in Kafka/REST/WS.
 - Messages carry `schema_version: 2`, and Flink stores nothing else.
-- The rules live in `app/helpers/{intervals,markets,prices}.py`.
+- The rules live in `app/helpers/{intervals,markets,prices,currencies,sources}.py`.
+
+**Display currencies:** storage, Kafka and Flink stay USD-only. REST (`/market/candles`, `/history`) and the WebSocket take `?currency=PLN` and convert on read with the ECB rate of each candle's own date (`app/fiat/convert.py`), setting `quote_currency`, `currency_rate`, `rate_date`; omitting it returns USD unchanged. `GET /api/v1/currencies` lists currencies that actually have a rate. A currency with no stored rate is a **503** on REST, and live frames are skipped rather than sent unconverted. The UI picks the currency in `frontend/src/lib/currency.ts` (session choice → profile `preferred_currency` → localStorage → **time zone** → browser language → server `DEFAULT_CURRENCY` → USD); the frontend test setup pins `TZ=UTC` because detection reads the machine's zone.
 
 ## Commands
 
@@ -60,7 +63,7 @@ API tests use a temporary SQLite DB and mock the Kafka producer; they don't need
 
 There are three Python venvs at the repo root: `env/` (API/app), `env_flink/` (PyFlink job — has its own package set, e.g. `avro`, `fastavro`), and `.env-old/` (stale, likely safe to ignore). PyFlink is intentionally excluded from `requirements.txt` because it must be pinned to match the installed Java/Python versions exactly.
 
-Config is environment-variable based (`app/config.py`, loaded via `python-dotenv`). Key vars: `TIMESCALE_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `PRODUCER_CONFIG_REFRESH_SECONDS`, `FX_REFERENCE_EXCHANGE`/`FX_MAX_AGE_SECONDS`, per-exchange `*_API_KEY`/`*_API_SECRET` (unneeded for public candle streams), `AUTH_SECRET`/`AUTH_TOKEN_LIFETIME_SECONDS` (JWT signing), `AUTH_COOKIE_NAME`/`AUTH_COOKIE_SECURE` (session cookie), `APP_ENV` (`production` enables `validate_config()`, which refuses to start on the dev `AUTH_SECRET`, an empty one, `AUTH_COOKIE_SECURE=false` or an unsafe CORS list — all of these used to fail open), `DB_SCHEMA_CHECK`, `DOCS_ENABLED`, `TRUST_PROXY_HEADERS`, the `RATE_LIMIT_*` and `WS_*` caps, and `PARQUET_BASE_DIR`. `.env.example` documents all of them. The Flink job additionally reads `TIMESCALE_JDBC_URL`, `TIMESCALE_USER`, `TIMESCALE_PASS` (plus optional `FLINK_CHECKPOINT_INTERVAL`, `FLINK_TOPIC_DISCOVERY_INTERVAL`, `FLINK_CHECKPOINT_DIR`) — these must be exported in the shell running the job; activating `env_flink` does not load `.env`. JDBC host differs by context: `localhost` when the job runs on the host against Compose, `postgres` when the job runs inside the Compose network.
+Config is environment-variable based (`app/config.py`, loaded via `python-dotenv`). Key vars: `TIMESCALE_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `PRODUCER_CONFIG_REFRESH_SECONDS`, `FX_REFERENCE_EXCHANGE`/`FX_MAX_AGE_SECONDS`, `DEFAULT_CURRENCY`/`FIAT_RATES_REFRESH_SECONDS`/`FIAT_CACHE_SECONDS`/`ECB_*_URL`, `YAHOO_POLL_SECONDS`, per-exchange `*_API_KEY`/`*_API_SECRET` (unneeded for public candle streams), `AUTH_SECRET`/`AUTH_TOKEN_LIFETIME_SECONDS` (JWT signing), `AUTH_COOKIE_NAME`/`AUTH_COOKIE_SECURE` (session cookie), `APP_ENV` (`production` enables `validate_config()`, which refuses to start on the dev `AUTH_SECRET`, an empty one, `AUTH_COOKIE_SECURE=false` or an unsafe CORS list — all of these used to fail open), `DB_SCHEMA_CHECK`, `DOCS_ENABLED`, `TRUST_PROXY_HEADERS`, the `RATE_LIMIT_*` and `WS_*` caps, and `PARQUET_BASE_DIR`. `.env.example` documents all of them. The Flink job additionally reads `TIMESCALE_JDBC_URL`, `TIMESCALE_USER`, `TIMESCALE_PASS` (plus optional `FLINK_CHECKPOINT_INTERVAL`, `FLINK_TOPIC_DISCOVERY_INTERVAL`, `FLINK_CHECKPOINT_DIR`) — these must be exported in the shell running the job; activating `env_flink` does not load `.env`. JDBC host differs by context: `localhost` when the job runs on the host against Compose, `postgres` when the job runs inside the Compose network.
 
 ## Architecture
 
@@ -70,7 +73,8 @@ Config is environment-variable based (`app/config.py`, loaded via `python-dotenv
   - Config comes from the DB and is hot-reloaded by `_reconcile_streams`.
   - A timeframe the exchange streams natively (`exchange.timeframes`) is used directly. Anything else is built from trades: `30s` everywhere, and every interval for `method="trades"` (Coinbase).
   - `build_unified_payload` produces the unified message.
-  - `app/kafka/fx_rates.py` keeps the live USDT/USDC → USD rates.
+  - `app/kafka/fx_rates.py` keeps the live USDT/USDC → USD rates; `app/fiat/rates.py` (`watch_fiat_rates`, its own task in the API lifespan and in `producer_runner` — deliberately not inside `run_producer`, which exits on a Kafka failure) downloads ECB rates (90-day backfill, then hourly) and `fiat_rates` (a `FiatRateCache`, DB-reloaded every `FIAT_CACHE_SECONDS`) serves them to the producer and the WebSocket.
+  - Non-ccxt sources are registered in `app/helpers/sources.py` (`NON_CCXT_SOURCES`) and dispatched by name in `_stream_exchange` via `NON_CCXT_STREAMS` — they never reach `getattr(ccxtpro, …)`. The only one is `yahoo` (`method="poll"`, `asset_class="stock"`): `app/kafka/yahoo_source.py` batches `yf.download` in a thread, polls 1m every `YAHOO_POLL_SECONDS` and longer bars every ≤5 min, rounds prices to 4 dp (Yahoo float noise), keys 1d bars at 00:00 UTC of the trading date, and only re-sends a bar when it changed.
 - `app/flink_jobs/candle_builder.py`: Kafka → TimescaleDB Flink job, wired from pure-Python builders in `job_config.py` (unit-tested from `env/`).
   - Topics: a pattern built from the enabled exchanges in the DB (read with psycopg), plus partition discovery, so new pairs are stored without a restart.
   - Resume: checkpointing is on and Kafka offsets are committed on each checkpoint. The job starts from `group-offsets` (falling back to `earliest`), so downtime is caught up.
@@ -101,9 +105,9 @@ Config is environment-variable based (`app/config.py`, loaded via `python-dotenv
 - Kafka topics follow `{exchange}.{UNIFIED_TICKER_WITHOUT_SLASH}.candles`, e.g. `binance.BTCUSD.candles` (fed by Binance `BTC/USDT`). All intervals of a market share its topic.
 - WebSocket market stream: `ws://.../api/v1/market/ws/live/{TICKER}`, with optional `?exchange=` and `?interval=` filters. Topics come from the DB (`_resolve_topics`, now filtered in SQL rather than by scanning every enabled symbol per connection). Close codes: **1008** unknown market (the UI treats this as permanent and does not retry — see `useLiveCandles.ts`), **1013** at capacity or rate-limited (temporary). Subscribers share consumers via the stream hub, and the server sends `{"type": "heartbeat"}` on a quiet market so half-open sockets can be reclaimed; the UI ignores those frames. No auth on the WebSocket.
 - Symbols API: `POST /api/v1/exchanges/{id}/symbols` and `/symbols/bulk`.
-  - Only USD/USDT/USDC quotes and the supported intervals are accepted; anything else is a 422.
+  - Only USD/USDT/USDC and ECB fiat quotes and the supported intervals are accepted; anything else is a 422. Separator-less spellings (`BTCUSDT`) only split on USD-equivalent suffixes.
   - A duplicate, or a second market feeding the same unified ticker on one exchange, is a 409.
-- `ExchangeCreate.name` is validated against `^[a-z0-9_]{2,32}$` **and** ccxt's own exchange list, and `method` is a `Literal`. The name is not just a label: it becomes `getattr(ccxtpro, name)`, a Kafka topic segment, and part of the Flink job's topic-pattern *inside a SQL string literal* (`re.escape` does not escape `'`).
+- `ExchangeCreate.name` is validated against `^[a-z0-9_]{2,32}$` **and** ccxt's own exchange list (or `NON_CCXT_SOURCES`), and `method` is a `Literal` (`poll` only for non-ccxt sources, which accept only `POLL_INTERVALS` — `30s` is a 422 / bulk skip). The name is not just a label: it becomes `getattr(ccxtpro, name)`, a Kafka topic segment, and part of the Flink job's topic-pattern *inside a SQL string literal* (`re.escape` does not escape `'`).
 - Every list endpoint takes capped `limit`/`offset`; `limit` used to be an unbounded bare `int` on `/market/candles` and `/history/{ticker}`. History also caps the date span at `HISTORY_MAX_RANGE_DAYS`.
 - `http_requests_total` is labelled by the **matched route template**, not the raw path — labelling by raw path let any client mint unbounded Prometheus series.
 - Alert rules live in `observability/prometheus/rules/tradingmaster.yml` (validate with `promtool check config`), delivered via an Alertmanager with a deliberately no-op receiver.
@@ -115,6 +119,9 @@ Config is environment-variable based (`app/config.py`, loaded via `python-dotenv
 - **No admin role.** `current_superuser` is defined in `app/auth/users.py` and used on no endpoint; every active user can pause exchanges, bulk-add markets, insert candles and trigger archives. Mutating endpoints now log the acting user id, so the actions are at least attributable.
 - **Open registration.** Accounts are `is_active=True` immediately and `current_active_user` does not require `is_verified`. Registration is rate-limited but the authorisation model is unchanged.
 - No email backend: FastAPI Users' `on_after_*` hooks only log, so password-reset and verification tokens are generated but never delivered.
+- **Stocks come from Yahoo's unofficial endpoint via `yfinance`** — ~15 min delayed, no SLA, throttles heavy use; with the producer in 3 API replicas it is polled 3×. Fine for display, not for resale.
+- **Fiat conversion uses one ECB rate per day.** A candle ingested before ~16:00 CET is converted with yesterday's rate, and read back later with today's once it's published, so a PLN stock read in PLN can be off by that day's rate move.
+- The Flink job builds its topic pattern from enabled exchanges at start — **restart it once after `yahoo` first appears**.
 - **TimescaleDB is not actually enabled** — it is plain `postgres:16`, with no hypertable, compression or retention policy anywhere.
 - Parquet archives go to `PARQUET_BASE_DIR` (default `data/`), which in Kubernetes is the Job pod's ephemeral disk — **the files are lost when the Job ends.** Point it at a persistent volume or object storage.
 - Rate limiting and the stream hub are **per process**, so limits multiply by replica count.
