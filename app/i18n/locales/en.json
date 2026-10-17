@@ -1,0 +1,64 @@
+{
+  "asset_class": {
+    "crypto": "Cryptocurrency",
+    "stock": "Stock"
+  },
+  "category": {
+    "currency": "Digital currency",
+    "smart_contract_platform": "Smart-contract platform",
+    "layer2": "Layer-2 scaling",
+    "defi": "Decentralised finance (DeFi)",
+    "exchange_token": "Exchange token",
+    "meme": "Meme coin",
+    "ai": "AI and computing",
+    "storage": "Decentralised storage",
+    "oracle": "Oracle network",
+    "payments": "Payments",
+    "infrastructure": "Blockchain infrastructure"
+  },
+  "sector": {
+    "technology": "Technology",
+    "communication_services": "Communication services",
+    "consumer_discretionary": "Consumer discretionary",
+    "consumer_staples": "Consumer staples",
+    "financials": "Financials",
+    "energy": "Energy",
+    "materials": "Materials",
+    "industrials": "Industrials",
+    "health_care": "Health care",
+    "utilities": "Utilities",
+    "real_estate": "Real estate"
+  },
+  "venue": {
+    "NASDAQ": "Nasdaq",
+    "NYSE": "New York Stock Exchange (NYSE)",
+    "GPW": "Warsaw Stock Exchange (GPW)",
+    "XETRA": "Xetra (Frankfurt)",
+    "OSE": "Oslo Stock Exchange"
+  },
+  "description": {
+    "crypto": "{name} ({symbol}) is a cryptocurrency. Category: {category}.",
+    "stock": "{name} ({symbol}) is a listed company. Sector: {category}. Exchange: {venue}.",
+    "stock_no_venue": "{name} ({symbol}) is a listed company. Sector: {category}.",
+    "unclassified": "{name} ({symbol})."
+  },
+  "seo": {
+    "market_title_crypto": "{name} ({symbol}) price today, live chart | TradingMaster",
+    "market_title_stock": "{name} ({symbol}) share price, live chart | TradingMaster",
+    "market_description_crypto": "{description} Live {name} price, candlestick chart and price history in your currency.",
+    "market_description_stock": "{description} {name} share price, candlestick chart and history in your currency (quotes delayed about 15 minutes).",
+    "home_title": "Live crypto and stock prices | TradingMaster",
+    "home_description": "Live prices, candlestick charts and history for cryptocurrencies and stocks from Binance, Kraken, Coinbase and major stock exchanges, in your own currency.",
+    "markets_title": "All markets: cryptocurrencies and stocks | TradingMaster",
+    "markets_description": "Directory of every cryptocurrency and stock TradingMaster tracks, with what each one is, its category or sector and where it trades.",
+    "history_title": "Price history | TradingMaster",
+    "history_description": "Archived candlestick price history for cryptocurrencies and stocks, by day and interval, in your currency.",
+    "system_title": "System status | TradingMaster",
+    "login_title": "Sign in | TradingMaster",
+    "profile_title": "Your account | TradingMaster",
+    "not_found_title": "Page not found | TradingMaster",
+    "not_found_description": "This page does not exist.",
+    "breadcrumb_home": "Home",
+    "breadcrumb_markets": "Markets"
+  }
+}

@@ -1,4 +1,4 @@
-from typing import List, Literal
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -140,6 +140,21 @@ class MarketResponse(BaseModel):
 
     ticker: str = Field(..., examples=["BTC/USD"], description="Unified ticker; stored prices are in USD")
     asset_class: str = Field("crypto", examples=["crypto", "stock"])
+    # What the market is, in the requested language (?lang=) — see app/i18n.
+    symbol: Optional[str] = Field(None, examples=["BTC", "PKN.WA"], description="Base symbol")
+    name: Optional[str] = Field(None, examples=["Bitcoin", "ORLEN S.A."])
+    short_name: Optional[str] = Field(None, examples=["Bitcoin", "Orlen"])
+    slug: Optional[str] = Field(None, examples=["bitcoin-btc"], description="URL segment of the market page")
+    asset_class_label: Optional[str] = Field(None, examples=["Cryptocurrency"])
+    category: Optional[str] = Field(None, examples=["currency", "energy"], description="Crypto category or stock sector code")
+    category_label: Optional[str] = Field(None, examples=["Digital currency"])
+    venue: Optional[str] = Field(None, examples=["GPW"], description="Listing venue (stocks)")
+    venue_label: Optional[str] = Field(None, examples=["Warsaw Stock Exchange (GPW)"])
+    country: Optional[str] = Field(None, examples=["PL"])
+    ticker_symbol: Optional[str] = Field(None, examples=["WSE:PKN"], description="Exchange-qualified ticker (stocks)")
+    description: Optional[str] = Field(None, examples=["Bitcoin (BTC) is a cryptocurrency. Category: Digital currency."])
+    page_title: Optional[str] = Field(None, description="<title> of the market page in this language")
+    page_description: Optional[str] = Field(None, description="Meta description of the market page in this language")
     exchanges: List[str] = Field(..., examples=[["binance", "kraken"]], description="Exchanges feeding this market")
     intervals: List[str] = Field(..., examples=[list(SUPPORTED_INTERVALS)], description="Candle lengths collected")
 

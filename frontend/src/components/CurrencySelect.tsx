@@ -1,7 +1,18 @@
 import { Select } from "@/components/ui/field";
+import { useLanguage } from "@/hooks/useLanguage";
 import { useCurrency } from "@/lib/currency-context";
+import { intlLocale } from "@/lib/i18n";
 
-/** Picks the display currency. Every supported currency, labelled "PLN — Polish złoty". */
+/** The currency's name in the UI language ("złoty polski"), or the API's English name. */
+function currencyName(code: string, fallback: string, locale: string): string {
+  try {
+    return new Intl.DisplayNames([locale], { type: "currency" }).of(code) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Picks the display currency. Every supported currency, labelled "PLN — Polish zloty" in the UI language. */
 export function CurrencySelect({
   id,
   value,
@@ -16,6 +27,7 @@ export function CurrencySelect({
   "aria-label"?: string;
 }) {
   const { currency, currencies, setCurrency } = useCurrency();
+  const locale = intlLocale(useLanguage());
   return (
     <Select
       id={id}
@@ -26,7 +38,7 @@ export function CurrencySelect({
     >
       {currencies.map((option) => (
         <option key={option.code} value={option.code}>
-          {option.code} — {option.name}
+          {option.code} — {currencyName(option.code, option.name, locale)}
         </option>
       ))}
     </Select>

@@ -6,6 +6,8 @@ import { BrowserRouter } from "react-router-dom";
 import { App } from "./App";
 import { AuthProvider } from "@/lib/auth";
 import { CurrencyProvider } from "@/lib/currency-context";
+import "@/lib/i18n";
+import { removeServerSeoTags } from "@/lib/seo-tags";
 import "./index.css";
 
 const queryClient = new QueryClient({
@@ -17,6 +19,9 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// The server's head tags are for the first response only; pages render their own from here on.
+removeServerSeoTags();
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

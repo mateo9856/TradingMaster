@@ -6,6 +6,10 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
+
+import { useLocalizedPath } from "@/components/LocalizedLink";
+import { Seo } from "@/components/Seo";
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -17,6 +21,8 @@ import { useAuth } from "@/lib/auth";
 export function LoginPage() {
   const { login, register } = useAuth();
   const navigate = useNavigate();
+  const localize = useLocalizedPath();
+  const { t } = useTranslation();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -33,13 +39,13 @@ export function LoginPage() {
       } else {
         await register(email, password);
       }
-      navigate("/profile");
+      navigate(localize("/profile"));
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 400) {
         setError(
           mode === "login"
-            ? "Wrong e-mail or password."
-            : `Registration failed: ${caught.message}`,
+            ? t("login.wrongCredentials")
+            : t("login.registrationFailed", { message: caught.message }),
         );
       } else {
         setError((caught as Error).message);
@@ -51,14 +57,16 @@ export function LoginPage() {
 
   return (
     <div className="mx-auto w-full max-w-md">
+      <Seo title={t("seo.login_title")} noindex />
       <Card>
         <CardHeader
-          title={mode === "login" ? "Sign in" : "Create an account"}
-          description="Only needed for changes — market data is public"
+          level={1}
+          title={mode === "login" ? t("login.signIn") : t("login.createAccount")}
+          description={t("login.description")}
         />
         <CardBody>
           <form onSubmit={submit} className="flex flex-col gap-3">
-            <Field label="E-mail">
+            <Field label={t("login.email")}>
               {(id) => (
                 <Input
                   id={id}
@@ -70,7 +78,7 @@ export function LoginPage() {
                 />
               )}
             </Field>
-            <Field label="Password" hint={mode === "register" ? "At least 8 characters" : undefined}>
+            <Field label={t("login.password")} hint={mode === "register" ? t("login.passwordHint") : undefined}>
               {(id) => (
                 <Input
                   id={id}
@@ -86,7 +94,7 @@ export function LoginPage() {
             {error ? <Alert tone="danger">{error}</Alert> : null}
 
             <Button type="submit" disabled={busy}>
-              {busy ? "Please wait…" : mode === "login" ? "Sign in" : "Register"}
+              {busy ? t("login.wait") : mode === "login" ? t("login.signIn") : t("login.register")}
             </Button>
             <Button
               type="button"
@@ -97,7 +105,7 @@ export function LoginPage() {
                 setError(null);
               }}
             >
-              {mode === "login" ? "No account? Register" : "Already registered? Sign in"}
+              {mode === "login" ? t("login.toRegister") : t("login.toSignIn")}
             </Button>
           </form>
         </CardBody>

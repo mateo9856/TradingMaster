@@ -314,7 +314,12 @@ async def test_list_markets_merges_exchanges_per_unified_ticker(client, markets,
     # binance feeds it from BTC/USDT, kraken from BTC/USD — one entry, both exchanges
     assert btc["exchanges"] == ["binance", "kraken"]
     assert btc["intervals"] == ["30s", "1m"]          # sorted shortest first
-    assert data[1] == {"ticker": "SOL/USD", "asset_class": "crypto", "exchanges": ["binance"], "intervals": ["1d"]}
+    sol = data[1]
+    assert (sol["ticker"], sol["asset_class"], sol["exchanges"], sol["intervals"]) == (
+        "SOL/USD", "crypto", ["binance"], ["1d"],
+    )
+    # No instruments row in this test — the market still has a usable name and page.
+    assert (sol["symbol"], sol["name"], sol["slug"]) == ("SOL", "SOL", "sol")
 
 
 async def test_list_markets_excludes_disabled_exchanges_and_symbols(client, markets):

@@ -1,0 +1,64 @@
+{
+  "asset_class": {
+    "crypto": "Kryptovaluta",
+    "stock": "Aksje"
+  },
+  "category": {
+    "currency": "Digital valuta",
+    "smart_contract_platform": "Plattform for smarte kontrakter",
+    "layer2": "Lag 2-skalering",
+    "defi": "Desentralisert finans (DeFi)",
+    "exchange_token": "Børstoken",
+    "meme": "Memecoin",
+    "ai": "KI og databehandling",
+    "storage": "Desentralisert lagring",
+    "oracle": "Orakelnettverk",
+    "payments": "Betalinger",
+    "infrastructure": "Blokkjedeinfrastruktur"
+  },
+  "sector": {
+    "technology": "Teknologi",
+    "communication_services": "Kommunikasjonstjenester",
+    "consumer_discretionary": "Syklisk forbruk",
+    "consumer_staples": "Defensivt forbruk",
+    "financials": "Finans",
+    "energy": "Energi",
+    "materials": "Råvarer",
+    "industrials": "Industri",
+    "health_care": "Helse",
+    "utilities": "Kraftforsyning",
+    "real_estate": "Eiendom"
+  },
+  "venue": {
+    "NASDAQ": "Nasdaq",
+    "NYSE": "New York-børsen (NYSE)",
+    "GPW": "Warszawa-børsen (GPW)",
+    "XETRA": "Xetra (Frankfurt)",
+    "OSE": "Oslo Børs"
+  },
+  "description": {
+    "crypto": "{name} ({symbol}) er en kryptovaluta. Kategori: {category}.",
+    "stock": "{name} ({symbol}) er et børsnotert selskap. Sektor: {category}. Børs: {venue}.",
+    "stock_no_venue": "{name} ({symbol}) er et børsnotert selskap. Sektor: {category}.",
+    "unclassified": "{name} ({symbol})."
+  },
+  "seo": {
+    "market_title_crypto": "{name} ({symbol}) kurs i dag, sanntidsgraf | TradingMaster",
+    "market_title_stock": "{name} ({symbol}) aksjekurs, sanntidsgraf | TradingMaster",
+    "market_description_crypto": "{description} Aktuell {symbol}-kurs, lysestakediagram og kurshistorikk i din valuta.",
+    "market_description_stock": "{description} {symbol}-aksjekurs, lysestakediagram og historikk i din valuta (kurser forsinket ca. 15 minutter).",
+    "home_title": "Krypto- og aksjekurser i sanntid | TradingMaster",
+    "home_description": "Aktuelle kurser, lysestakediagrammer og historikk for kryptovaluta og aksjer fra Binance, Kraken, Coinbase og store børser, i din egen valuta.",
+    "markets_title": "Alle markeder: kryptovaluta og aksjer | TradingMaster",
+    "markets_description": "Oversikt over alle kryptovalutaer og aksjer TradingMaster følger: hva hver enkelt er, kategori eller sektor og hvor den handles.",
+    "history_title": "Kurshistorikk | TradingMaster",
+    "history_description": "Arkivert kurshistorikk for kryptovaluta og aksjer som lysestakediagram, per dag og intervall, i din valuta.",
+    "system_title": "Systemstatus | TradingMaster",
+    "login_title": "Logg inn | TradingMaster",
+    "profile_title": "Din konto | TradingMaster",
+    "not_found_title": "Fant ikke siden | TradingMaster",
+    "not_found_description": "Denne siden finnes ikke.",
+    "breadcrumb_home": "Hjem",
+    "breadcrumb_markets": "Markeder"
+  }
+}

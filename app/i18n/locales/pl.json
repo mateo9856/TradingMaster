@@ -1,0 +1,64 @@
+{
+  "asset_class": {
+    "crypto": "Kryptowaluta",
+    "stock": "Akcje"
+  },
+  "category": {
+    "currency": "Waluta cyfrowa",
+    "smart_contract_platform": "Platforma smart kontraktów",
+    "layer2": "Skalowanie warstwy 2 (Layer 2)",
+    "defi": "Zdecentralizowane finanse (DeFi)",
+    "exchange_token": "Token giełdowy",
+    "meme": "Memecoin",
+    "ai": "AI i moc obliczeniowa",
+    "storage": "Zdecentralizowane przechowywanie danych",
+    "oracle": "Sieć wyroczni",
+    "payments": "Płatności",
+    "infrastructure": "Infrastruktura blockchain"
+  },
+  "sector": {
+    "technology": "Technologia",
+    "communication_services": "Usługi komunikacyjne",
+    "consumer_discretionary": "Dobra konsumpcyjne cykliczne",
+    "consumer_staples": "Dobra konsumpcyjne podstawowe",
+    "financials": "Finanse",
+    "energy": "Energetyka",
+    "materials": "Surowce",
+    "industrials": "Przemysł",
+    "health_care": "Ochrona zdrowia",
+    "utilities": "Użyteczność publiczna",
+    "real_estate": "Nieruchomości"
+  },
+  "venue": {
+    "NASDAQ": "Nasdaq",
+    "NYSE": "Giełda Nowojorska (NYSE)",
+    "GPW": "Giełda Papierów Wartościowych w Warszawie (GPW)",
+    "XETRA": "Xetra (Frankfurt)",
+    "OSE": "Giełda w Oslo"
+  },
+  "description": {
+    "crypto": "{name} ({symbol}) to kryptowaluta. Kategoria: {category}.",
+    "stock": "{name} ({symbol}) to spółka giełdowa. Sektor: {category}. Giełda: {venue}.",
+    "stock_no_venue": "{name} ({symbol}) to spółka giełdowa. Sektor: {category}.",
+    "unclassified": "{name} ({symbol})."
+  },
+  "seo": {
+    "market_title_crypto": "{name} ({symbol}) – kurs dzisiaj, wykres na żywo | TradingMaster",
+    "market_title_stock": "{name} ({symbol}) – notowania akcji, wykres na żywo | TradingMaster",
+    "market_description_crypto": "{description} Aktualny kurs {symbol}, wykres świecowy i historia notowań w Twojej walucie.",
+    "market_description_stock": "{description} Notowania akcji {symbol}, wykres świecowy i historia w Twojej walucie (notowania opóźnione o ok. 15 minut).",
+    "home_title": "Kursy kryptowalut i akcji na żywo | TradingMaster",
+    "home_description": "Aktualne kursy, wykresy świecowe i historia notowań kryptowalut oraz akcji z Binance, Kraken, Coinbase i głównych giełd papierów wartościowych – w Twojej walucie.",
+    "markets_title": "Wszystkie rynki: kryptowaluty i akcje | TradingMaster",
+    "markets_description": "Katalog wszystkich kryptowalut i akcji śledzonych przez TradingMaster: czym jest każdy instrument, jego kategoria lub sektor i gdzie jest notowany.",
+    "history_title": "Historia notowań | TradingMaster",
+    "history_description": "Archiwalne notowania kryptowalut i akcji na wykresach świecowych, według dnia i interwału, w Twojej walucie.",
+    "system_title": "Stan systemu | TradingMaster",
+    "login_title": "Logowanie | TradingMaster",
+    "profile_title": "Twoje konto | TradingMaster",
+    "not_found_title": "Nie znaleziono strony | TradingMaster",
+    "not_found_description": "Ta strona nie istnieje.",
+    "breadcrumb_home": "Strona główna",
+    "breadcrumb_markets": "Rynki"
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "asset_class": {
+    "crypto": "Criptovaluta",
+    "stock": "Azione"
+  },
+  "category": {
+    "currency": "Valuta digitale",
+    "smart_contract_platform": "Piattaforma per smart contract",
+    "layer2": "Scalabilità layer 2",
+    "defi": "Finanza decentralizzata (DeFi)",
+    "exchange_token": "Token di exchange",
+    "meme": "Meme coin",
+    "ai": "IA e calcolo",
+    "storage": "Archiviazione decentralizzata",
+    "oracle": "Rete di oracoli",
+    "payments": "Pagamenti",
+    "infrastructure": "Infrastruttura blockchain"
+  },
+  "sector": {
+    "technology": "Tecnologia",
+    "communication_services": "Servizi di comunicazione",
+    "consumer_discretionary": "Beni di consumo discrezionali",
+    "consumer_staples": "Beni di prima necessità",
+    "financials": "Finanza",
+    "energy": "Energia",
+    "materials": "Materiali",
+    "industrials": "Industria",
+    "health_care": "Sanità",
+    "utilities": "Servizi di pubblica utilità",
+    "real_estate": "Immobiliare"
+  },
+  "venue": {
+    "NASDAQ": "Nasdaq",
+    "NYSE": "Borsa di New York (NYSE)",
+    "GPW": "Borsa di Varsavia (GPW)",
+    "XETRA": "Xetra (Francoforte)",
+    "OSE": "Borsa di Oslo"
+  },
+  "description": {
+    "crypto": "{name} ({symbol}) è una criptovaluta. Categoria: {category}.",
+    "stock": "{name} ({symbol}) è una società quotata. Settore: {category}. Borsa: {venue}.",
+    "stock_no_venue": "{name} ({symbol}) è una società quotata. Settore: {category}.",
+    "unclassified": "{name} ({symbol})."
+  },
+  "seo": {
+    "market_title_crypto": "Prezzo {name} ({symbol}) oggi, grafico in tempo reale | TradingMaster",
+    "market_title_stock": "Quotazione azioni {name} ({symbol}), grafico in tempo reale | TradingMaster",
+    "market_description_crypto": "{description} Prezzo {symbol} in tempo reale, grafico a candele e storico nella tua valuta.",
+    "market_description_stock": "{description} Quotazione delle azioni {symbol}, grafico a candele e storico nella tua valuta (quotazioni ritardate di circa 15 minuti).",
+    "home_title": "Prezzi di criptovalute e azioni in tempo reale | TradingMaster",
+    "home_description": "Prezzi in tempo reale, grafici a candele e storico di criptovalute e azioni da Binance, Kraken, Coinbase e dalle principali borse, nella tua valuta.",
+    "markets_title": "Tutti i mercati: criptovalute e azioni | TradingMaster",
+    "markets_description": "Elenco di tutte le criptovalute e le azioni seguite da TradingMaster: cos'è ciascuna, la categoria o il settore e dove viene scambiata.",
+    "history_title": "Storico dei prezzi | TradingMaster",
+    "history_description": "Storico archiviato dei prezzi di criptovalute e azioni a candele, per giorno e intervallo, nella tua valuta.",
+    "system_title": "Stato del sistema | TradingMaster",
+    "login_title": "Accedi | TradingMaster",
+    "profile_title": "Il tuo account | TradingMaster",
+    "not_found_title": "Pagina non trovata | TradingMaster",
+    "not_found_description": "Questa pagina non esiste.",
+    "breadcrumb_home": "Home",
+    "breadcrumb_markets": "Mercati"
+  }
+}

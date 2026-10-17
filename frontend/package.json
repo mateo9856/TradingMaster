@@ -14,9 +14,11 @@
   "dependencies": {
     "@tanstack/react-query": "^5.103.1",
     "clsx": "^2.1.1",
+    "i18next": "^26.4.3",
     "lightweight-charts": "^5.0.9",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "react-i18next": "^17.0.16",
     "react-router-dom": "^7.18.4",
     "tailwind-merge": "^3.7.0"
   },

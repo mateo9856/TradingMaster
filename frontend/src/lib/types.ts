@@ -15,12 +15,33 @@ export interface ApiResponse<T> {
 
 export type AssetClass = "crypto" | "stock";
 
-/** One unified market: GET /api/v1/market/markets */
+/**
+ * One unified market: GET /api/v1/market/markets?lang=…
+ *
+ * Besides what is collected (exchanges, intervals), it says what the
+ * instrument *is*, in the requested language. Names are proper nouns and never
+ * translated; labels and descriptions are. The descriptive fields are optional
+ * so an older API (or a test fixture) without them still works.
+ */
 export interface Market {
-  ticker: string;        // "BTC/USD", "PKN.WA/USD"
-  asset_class?: AssetClass; // absent from older APIs — treat as crypto
-  exchanges: string[];   // ["binance", "kraken"]
-  intervals: string[];   // ["30s", "1m", "5m", "1h", "1d"]
+  ticker: string;             // "BTC/USD", "PKN.WA/USD"
+  asset_class?: AssetClass;   // absent from older APIs — treat as crypto
+  exchanges: string[];        // ["binance", "kraken"]
+  intervals: string[];        // ["30s", "1m", "5m", "1h", "1d"]
+  symbol?: string;            // "BTC", "PKN.WA"
+  name?: string;              // "Bitcoin", "ORLEN S.A."
+  short_name?: string;        // "Bitcoin", "Orlen"
+  slug?: string;              // "bitcoin-btc" — the market page URL
+  asset_class_label?: string; // "Cryptocurrency" / "Kryptowaluta"
+  category?: string | null;
+  category_label?: string | null;
+  venue?: string | null;      // "GPW"
+  venue_label?: string | null;
+  country?: string | null;
+  ticker_symbol?: string | null; // "WSE:PKN"
+  description?: string;
+  page_title?: string;
+  page_description?: string;
 }
 
 export interface Candle {

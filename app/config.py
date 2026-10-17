@@ -69,6 +69,12 @@ FIAT_CACHE_SECONDS: int = int(os.getenv("FIAT_CACHE_SECONDS", "600"))
 ECB_DAILY_URL: str = os.getenv("ECB_DAILY_URL", "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml")
 ECB_HISTORY_URL: str = os.getenv("ECB_HISTORY_URL", "https://www.ecb.europa.eu/stats/eurofxref/eurofxref-hist-90d.xml")
 
+# Public origin of the site, e.g. https://tradingmaster.example — used for the
+# canonical, hreflang and sitemap links search engines read (app/seo.py). Falls
+# back to the origin of each request, which is fine locally but must be set in
+# production: behind a proxy the request origin can be an internal hostname.
+SITE_URL: str = os.getenv("SITE_URL", "").strip().rstrip("/")
+
 # Stocks come from Yahoo Finance (app/kafka/yahoo_source.py), polled — Yahoo has
 # no streaming API. Quotes are delayed ~15 minutes by the exchanges' licensing.
 YAHOO_POLL_SECONDS: int = int(os.getenv("YAHOO_POLL_SECONDS", "60"))

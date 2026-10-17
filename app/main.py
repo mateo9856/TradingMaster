@@ -6,13 +6,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 import app.config as config
+from app import seo
 import app.models  # noqa: F401 — registers all ORM models with Base
 from app.auth import (
     UserCreate,
@@ -31,10 +32,11 @@ from app.middleware.security_headers import security_headers_middleware
 from app.metrics import http_request_duration_seconds, http_requests_total
 from app.models.database import engine, AsyncSessionLocal
 from app.models.schema_check import assert_schema_at_head
-from app.models.seeder import seed_exchanges
+from app.models.seeder import seed_exchanges, seed_instruments
 from app.fiat.rates import fiat_rates, watch_fiat_rates
 from app.kafka.producer import run_producer
-from app.routers import currencies, exchanges, history, market
+from app.routers import currencies, exchanges, history, instruments, market
+from app.routers.market import load_markets
 from app.tracing import setup_tracing
 
 setup_json_logging(service="tradingmaster-api", level=getattr(logging, config.LOG_LEVEL, logging.INFO))
@@ -56,6 +58,7 @@ async def lifespan(application: FastAPI):
     logger.info("Seeding exchange and symbol config...")
     async with AsyncSessionLocal() as db:
         await seed_exchanges(db)
+        await seed_instruments(db)
 
     # ECB reference rates for the display currencies. Its own task, not part of
     # the producer: prices must still be readable in PLN while Kafka is down
@@ -166,6 +169,7 @@ app.include_router(market.router)
 app.include_router(exchanges.router)
 app.include_router(history.router)
 app.include_router(currencies.router)
+app.include_router(instruments.router)
 
 # Two login routes for the same accounts: the browser takes the cookie one
 # (nothing readable ends up in the page), API clients take the bearer one.
@@ -222,6 +226,22 @@ async def health():
     return {"status": "ok"}
 
 
+# ── Search engines ────────────────────────────────────────────────────────────
+
+@app.get("/robots.txt", include_in_schema=False)
+async def robots(request: Request) -> PlainTextResponse:
+    return PlainTextResponse(seo.robots_txt(seo.site_url(request)))
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+async def sitemap(request: Request) -> Response:
+    """Every indexable page in every language, with hreflang alternates."""
+    async with AsyncSessionLocal() as db:
+        markets = await load_markets(db)
+    body = seo.sitemap_xml(seo.site_url(request), [m.slug for m in markets if m.slug])
+    return Response(body, media_type="application/xml")
+
+
 # ── Front-end (production bundle) ─────────────────────────────────────────────
 # Registered last so it can never shadow /api, /docs, /redoc or /metrics. Only
 # active once `frontend/dist` has been built (`cd frontend && npm run build`);
@@ -232,10 +252,12 @@ if FRONTEND_DIST.is_dir():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="assets")
 
     @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_frontend(full_path: str):
+    async def serve_frontend(full_path: str, request: Request):
         """
         Serves the built single-page app: a real file when one matches, and
         index.html otherwise, so client-side routes survive a page refresh.
+        index.html carries the page's own language, title and search-engine
+        metadata (app/seo.py), and an unknown page is a real 404.
         """
         # An unmatched API path is a genuine 404 — never answer it with the SPA,
         # or a typo'd endpoint would look like a working page to a client.
@@ -245,7 +267,17 @@ if FRONTEND_DIST.is_dir():
         candidate = (FRONTEND_DIST / full_path).resolve()
         if full_path and candidate.is_file() and candidate.is_relative_to(FRONTEND_DIST):
             return FileResponse(candidate)
-        return FileResponse(FRONTEND_DIST / "index.html")
+
+        lang, path = seo.split_language(full_path)
+        if lang is None:
+            # /en/… — English lives at the unprefixed URL; one address per page.
+            target = seo.localized_path(seo.DEFAULT_LANGUAGE, path)
+            query = f"?{request.url.query}" if request.url.query else ""
+            return RedirectResponse(target + query, status_code=status.HTTP_301_MOVED_PERMANENTLY)
+
+        document, status_code = await seo.render_spa_page(request, FRONTEND_DIST / "index.html", lang, path)
+        # The shell changes with every deploy; the hashed /assets it points to are what get cached.
+        return HTMLResponse(document, status_code=status_code, headers={"Cache-Control": "no-cache"})
 
     logger.info(f"Serving front-end bundle from {FRONTEND_DIST}")
 else:

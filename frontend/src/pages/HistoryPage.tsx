@@ -7,16 +7,21 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+
+import { Seo } from "@/components/Seo";
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { ApiError, api } from "@/lib/api";
+import { useLanguage } from "@/hooks/useLanguage";
 import { useAuth } from "@/lib/auth";
 import { BASE_CURRENCY, formatMoney } from "@/lib/currency";
 import { useCurrency } from "@/lib/currency-context";
 import { formatTimestamp, formatVolume, todayUtc } from "@/lib/format";
+import { marketName } from "@/lib/market";
 import { INTERVALS } from "@/lib/types";
 
 interface Search {
@@ -30,8 +35,10 @@ interface Search {
 
 export function HistoryPage() {
   const { user } = useAuth();
+  const { t } = useTranslation();
+  const language = useLanguage();
   const { currency, ready: currencyReady } = useCurrency();
-  const marketsQuery = useQuery({ queryKey: ["markets"], queryFn: api.markets });
+  const marketsQuery = useQuery({ queryKey: ["markets", language], queryFn: () => api.markets(language) });
   const markets = marketsQuery.data ?? [];
 
   const [form, setForm] = useState<Search>({
@@ -75,14 +82,13 @@ export function HistoryPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <Seo title={t("seo.history_title")} description={t("seo.history_description")} />
+      <h1 className="text-2xl font-semibold tracking-tight">{t("nav.history")}</h1>
       <Card>
-        <CardHeader
-          title="Archived candles"
-          description="Cold storage (candles_history) — written nightly by the end-of-day job"
-        />
+        <CardHeader title={t("history.title")} description={t("history.description")} />
         <CardBody>
           <form onSubmit={submit} className="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-6">
-            <Field label="Market" className="lg:col-span-2">
+            <Field label={t("history.market")} className="lg:col-span-2">
               {(id) => (
                 <Input
                   id={id}
@@ -95,11 +101,11 @@ export function HistoryPage() {
             </Field>
             <datalist id="known-markets">
               {markets.map((market) => (
-                <option key={market.ticker} value={market.ticker} />
+                <option key={market.ticker} value={market.ticker} label={marketName(market)} />
               ))}
             </datalist>
 
-            <Field label="From">
+            <Field label={t("history.from")}>
               {(id) => (
                 <Input
                   id={id}
@@ -109,7 +115,7 @@ export function HistoryPage() {
                 />
               )}
             </Field>
-            <Field label="To">
+            <Field label={t("history.to")}>
               {(id) => (
                 <Input
                   id={id}
@@ -119,7 +125,7 @@ export function HistoryPage() {
                 />
               )}
             </Field>
-            <Field label="Interval">
+            <Field label={t("history.interval")}>
               {(id) => (
                 <Select
                   id={id}
@@ -134,14 +140,14 @@ export function HistoryPage() {
                 </Select>
               )}
             </Field>
-            <Field label="Exchange">
+            <Field label={t("history.exchange")}>
               {(id) => (
                 <Select
                   id={id}
                   value={form.exchange}
                   onChange={(event) => setForm({ ...form, exchange: event.target.value })}
                 >
-                  <option value="">All</option>
+                  <option value="">{t("history.all")}</option>
                   {[...new Set(markets.flatMap((market) => market.exchanges))].sort().map((name) => (
                     <option key={name} value={name}>
                       {name}
@@ -152,24 +158,23 @@ export function HistoryPage() {
             </Field>
 
             <Button type="submit" className="sm:col-span-2 lg:col-span-1">
-              Search
+              {t("history.search")}
             </Button>
           </form>
 
           <div className="mt-4">
             {historyQuery.isFetching ? (
-              <p className="text-sm text-muted-foreground">Searching…</p>
+              <p className="text-sm text-muted-foreground">{t("history.searching")}</p>
             ) : error instanceof ApiError && error.isNotFound ? (
-              <Alert tone="warning" title="No archived candles for that range">
-                History is written by the nightly job, so today's data usually isn't there yet. Try an
-                earlier date, or run the archive below.
+              <Alert tone="warning" title={t("history.noneTitle")}>
+                {t("history.noneBody")}
               </Alert>
             ) : error instanceof ApiError && error.isValidation ? (
-              <Alert tone="danger" title="Unsupported market">
+              <Alert tone="danger" title={t("history.unsupportedTitle")}>
                 {error.message}
               </Alert>
             ) : error ? (
-              <Alert tone="danger" title="Search failed">
+              <Alert tone="danger" title={t("history.failedTitle")}>
                 {(error as Error).message}
               </Alert>
             ) : rows.length ? (
@@ -177,14 +182,14 @@ export function HistoryPage() {
                 <table className="w-full text-sm">
                   <thead className="text-left text-xs uppercase tracking-wide text-muted-foreground">
                     <tr className="border-b border-border">
-                      <th className="py-2 pr-3 font-medium">Timestamp (UTC)</th>
-                      <th className="py-2 pr-3 font-medium">Exchange</th>
-                      <th className="py-2 pr-3 font-medium">Source</th>
-                      <th className="py-2 pr-3 text-right font-medium">Open ({currency})</th>
-                      <th className="py-2 pr-3 text-right font-medium">High ({currency})</th>
-                      <th className="py-2 pr-3 text-right font-medium">Low ({currency})</th>
-                      <th className="py-2 pr-3 text-right font-medium">Close ({currency})</th>
-                      <th className="py-2 text-right font-medium">Volume</th>
+                      <th className="py-2 pr-3 font-medium">{t("history.timestamp")}</th>
+                      <th className="py-2 pr-3 font-medium">{t("history.exchange")}</th>
+                      <th className="py-2 pr-3 font-medium">{t("history.source")}</th>
+                      <th className="py-2 pr-3 text-right font-medium">{t("history.open", { currency })}</th>
+                      <th className="py-2 pr-3 text-right font-medium">{t("history.high", { currency })}</th>
+                      <th className="py-2 pr-3 text-right font-medium">{t("history.low", { currency })}</th>
+                      <th className="py-2 pr-3 text-right font-medium">{t("history.close", { currency })}</th>
+                      <th className="py-2 text-right font-medium">{t("history.volume")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -203,27 +208,22 @@ export function HistoryPage() {
                   </tbody>
                 </table>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  {rows.length} row{rows.length === 1 ? "" : "s"} (limit {search?.limit})
-                  {currency !== BASE_CURRENCY
-                    ? ` · stored in USD, converted to ${currency} at each day's ECB reference rate`
-                    : ""}
+                  {t("history.rows", { count: rows.length, limit: search?.limit })}
+                  {currency !== BASE_CURRENCY ? ` · ${t("history.converted", { currency })}` : ""}
                 </p>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">Choose a market and date range, then search.</p>
+              <p className="text-sm text-muted-foreground">{t("history.prompt")}</p>
             )}
           </div>
         </CardBody>
       </Card>
 
       <Card>
-        <CardHeader
-          title="Run the end-of-day archive"
-          description="Copies a day's candles into history and exports Parquet — normally a nightly job"
-        />
+        <CardHeader title={t("history.archiveTitle")} description={t("history.archiveDescription")} />
         <CardBody className="flex flex-col gap-3">
           <div className="flex flex-wrap items-end gap-3">
-            <Field label="Date (UTC)">
+            <Field label={t("history.date")}>
               {(id) => (
                 <Input
                   id={id}
@@ -236,24 +236,22 @@ export function HistoryPage() {
             <Button
               onClick={() => archive.mutate(archiveDate)}
               disabled={!user || archive.isPending}
-              title={user ? undefined : "Sign in to run the archive"}
+              title={user ? undefined : t("history.signInToRun")}
             >
-              {archive.isPending ? "Starting…" : "Run archive"}
+              {archive.isPending ? t("history.starting") : t("history.runArchive")}
             </Button>
           </div>
 
           {!user ? (
-            <Alert tone="info">
-              Reading data is public; changing anything needs an account. Sign in to run the archive.
-            </Alert>
+            <Alert tone="info">{t("history.publicNote")}</Alert>
           ) : null}
           {archive.isSuccess ? (
-            <Alert tone="success" title="Archive started">
-              {archive.data?.message ?? `Archiving ${archiveDate} in the background.`}
+            <Alert tone="success" title={t("history.archiveStarted")}>
+              {archive.data?.message ?? t("history.archiving", { date: archiveDate })}
             </Alert>
           ) : null}
           {archive.isError ? (
-            <Alert tone="danger" title="Could not start the archive">
+            <Alert tone="danger" title={t("history.archiveFailed")}>
               {(archive.error as Error).message}
             </Alert>
           ) : null}

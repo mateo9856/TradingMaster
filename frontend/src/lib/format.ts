@@ -1,8 +1,11 @@
 /**
  * The unified feed sends prices and volumes as exact 8-decimal strings
  * ("65000.10000000"). These helpers convert them for charts and shorten them
- * for display without ever re-formatting through a lossy float first.
+ * for display without ever re-formatting through a lossy float first. Numbers
+ * are formatted in the UI language's locale (src/lib/i18n.ts).
  */
+
+import { intlLocale } from "./i18n";
 
 /** Decimal string (or number) → number, for charting and maths. NaN-safe: throws instead. */
 export function toNumber(value: string | number): number {
@@ -19,30 +22,31 @@ export function toNumber(value: string | number): number {
  * Price for display: keeps enough decimals to stay meaningful for cheap coins
  * (SHIB at 0.00001234) without showing eight zeros on BTC.
  */
-export function formatPrice(value: string | number): string {
+export function formatPrice(value: string | number, locale: string = intlLocale()): string {
   const amount = toNumber(value);
   const decimals = amount >= 1000 ? 2 : amount >= 1 ? 4 : 8;
-  return amount.toLocaleString("en-US", {
+  return amount.toLocaleString(locale, {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
 }
 
 /** Volume in base-currency units, compact for the wide range across coins. */
-export function formatVolume(value: string | number): string {
+export function formatVolume(value: string | number, locale: string = intlLocale()): string {
   const amount = toNumber(value);
-  if (amount >= 1000) return amount.toLocaleString("en-US", { maximumFractionDigits: 0 });
-  if (amount >= 1) return amount.toLocaleString("en-US", { maximumFractionDigits: 3 });
-  return amount.toLocaleString("en-US", { maximumFractionDigits: 8 });
+  if (amount >= 1000) return amount.toLocaleString(locale, { maximumFractionDigits: 0 });
+  if (amount >= 1) return amount.toLocaleString(locale, { maximumFractionDigits: 3 });
+  return amount.toLocaleString(locale, { maximumFractionDigits: 8 });
 }
 
 /** Signed percentage change between two prices, e.g. "+1.24%". */
-export function formatChange(from: string | number, to: string | number): string {
+export function formatChange(from: string | number, to: string | number, locale: string = intlLocale()): string {
   const start = toNumber(from);
   const end = toNumber(to);
   if (start === 0) return "—";
   const pct = ((end - start) / start) * 100;
-  return `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%`;
+  const number = Math.abs(pct).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `${pct >= 0 ? "+" : "-"}${number}%`;
 }
 
 export function changeDirection(from: string | number, to: string | number): "up" | "down" | "flat" {

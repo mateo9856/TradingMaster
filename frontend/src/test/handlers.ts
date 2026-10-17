@@ -7,9 +7,26 @@ export function envelope<T>(data: T, message = "ok") {
 }
 
 export const MARKETS: Market[] = [
-  { ticker: "BTC/USD", asset_class: "crypto", exchanges: ["binance", "kraken"], intervals: ["30s", "1m", "1h"] },
-  { ticker: "ETH/USD", asset_class: "crypto", exchanges: ["binance"], intervals: ["1m"] },
-  { ticker: "PKN.WA/USD", asset_class: "stock", exchanges: ["yahoo"], intervals: ["1m", "1d"] },
+  {
+    ticker: "BTC/USD", asset_class: "crypto", exchanges: ["binance", "kraken"], intervals: ["30s", "1m", "1h"],
+    symbol: "BTC", name: "Bitcoin", short_name: "Bitcoin", slug: "bitcoin-btc",
+    asset_class_label: "Cryptocurrency", category: "currency", category_label: "Digital currency",
+    description: "Bitcoin (BTC) is a cryptocurrency. Category: Digital currency.",
+    page_title: "Bitcoin (BTC) price today, live chart | TradingMaster",
+    page_description: "Bitcoin (BTC) is a cryptocurrency. Category: Digital currency. Live Bitcoin price.",
+  },
+  {
+    ticker: "ETH/USD", asset_class: "crypto", exchanges: ["binance"], intervals: ["1m"],
+    symbol: "ETH", name: "Ethereum", slug: "ethereum-eth",
+    asset_class_label: "Cryptocurrency", category_label: "Smart-contract platform",
+  },
+  {
+    ticker: "PKN.WA/USD", asset_class: "stock", exchanges: ["yahoo"], intervals: ["1m", "1d"],
+    symbol: "PKN.WA", name: "ORLEN S.A.", short_name: "Orlen", slug: "orlen-pkn-wa",
+    asset_class_label: "Stock", category: "energy", category_label: "Energy",
+    venue: "GPW", venue_label: "Warsaw Stock Exchange (GPW)",
+    description: "ORLEN S.A. (PKN.WA) is a listed company. Sector: Energy. Exchange: Warsaw Stock Exchange (GPW).",
+  },
 ];
 
 export const CURRENCIES: Currencies = {

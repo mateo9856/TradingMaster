@@ -17,6 +17,8 @@ from app.config import (
     WS_MAX_CONNECTIONS_PER_IP,
 )
 from app.helpers.currencies import validate_currency
+from app.i18n import DEFAULT_LANGUAGE, validate_language
+from app.i18n.instruments import localize
 from app.helpers.intervals import SUPPORTED_INTERVALS, validate_interval
 from app.helpers.markets import source_ticker_candidates, topic_ticker, unified_ticker
 from app.kafka.stream_hub import stream_hub
@@ -25,6 +27,7 @@ from app.middleware.rate_limit import check_websocket_connect, client_key
 from app.models.candle import Candle
 from app.models.database import AsyncSessionLocal, get_db
 from app.models.exchange import Exchange, Symbol
+from app.models.instrument import Instrument
 from app.models.user import User
 from app.schemas import ApiResponse, CandleCreate, CandleResponse, MarketResponse
 
@@ -72,12 +75,20 @@ def resolve_interval(interval: str) -> str:
 
 # ── REST: market list ────────────────────────────────────────────────────────
 
-@router.get("/markets", response_model=ApiResponse[List[MarketResponse]])
-async def list_markets(db: AsyncSession = Depends(get_db)):
+def resolve_language(lang: Optional[str]) -> str:
+    """The language code, `en` when not given, 422 for an unsupported one."""
+    try:
+        return validate_language(lang)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(e))
+
+
+async def load_markets(db: AsyncSession, lang: str = DEFAULT_LANGUAGE) -> List[MarketResponse]:
     """
-    Markets currently collected, as the unified feed publishes them — one entry
-    per unified ticker, with the exchanges feeding it and the intervals
-    available. Public; this is what a UI's market picker is built from.
+    Every collected market — one per unified ticker — with the exchanges and
+    intervals feeding it and what it is (name, classification, description) in
+    `lang`. Shared by the market list, the instrument pages and the
+    server-rendered head / sitemap (app/seo.py).
     """
     result = await db.execute(
         select(Exchange.name, Exchange.asset_class, Symbol.ticker, Symbol.interval)
@@ -99,15 +110,38 @@ async def list_markets(db: AsyncSession = Depends(get_db)):
         entry["intervals"].add(interval)
         asset_classes.setdefault(unified, asset_class or "crypto")
 
-    data = [
-        MarketResponse(
+    symbols = {ticker.split("/")[0] for ticker in markets}
+    instruments = {}
+    if symbols:
+        rows = await db.execute(select(Instrument).where(Instrument.symbol.in_(symbols)))
+        instruments = {row.symbol: row for row in rows.scalars().all()}
+
+    data = []
+    for ticker, entry in sorted(markets.items()):
+        symbol = ticker.split("/")[0]
+        info = localize(symbol, lang, instruments.get(symbol), asset_classes[ticker])
+        data.append(MarketResponse(
             ticker=ticker,
-            asset_class=asset_classes[ticker],
             exchanges=sorted(entry["exchanges"]),
             intervals=sorted(entry["intervals"], key=SUPPORTED_INTERVALS.index),
-        )
-        for ticker, entry in sorted(markets.items())
-    ]
+            **info,
+        ))
+    return data
+
+
+@router.get("/markets", response_model=ApiResponse[List[MarketResponse]])
+async def list_markets(
+    lang: Optional[str] = Query(None, examples=["pl"], description="Language of names and descriptions; default en"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Markets currently collected, as the unified feed publishes them — one entry
+    per unified ticker, with the exchanges feeding it, the intervals available
+    and what the instrument is (Bitcoin, a cryptocurrency; ORLEN S.A., a stock
+    on the Warsaw exchange) in `lang`. Public; this is what a UI's market
+    picker and market directory are built from.
+    """
+    data = await load_markets(db, resolve_language(lang))
     return ApiResponse(status="success", message=f"Found {len(data)} market(s)", data=data)
 
 

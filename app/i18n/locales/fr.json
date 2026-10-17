@@ -1,0 +1,64 @@
+{
+  "asset_class": {
+    "crypto": "Cryptomonnaie",
+    "stock": "Action"
+  },
+  "category": {
+    "currency": "Monnaie numérique",
+    "smart_contract_platform": "Plateforme de contrats intelligents",
+    "layer2": "Solution de couche 2",
+    "defi": "Finance décentralisée (DeFi)",
+    "exchange_token": "Jeton de plateforme d'échange",
+    "meme": "Memecoin",
+    "ai": "IA et calcul",
+    "storage": "Stockage décentralisé",
+    "oracle": "Réseau d'oracles",
+    "payments": "Paiements",
+    "infrastructure": "Infrastructure blockchain"
+  },
+  "sector": {
+    "technology": "Technologies de l'information",
+    "communication_services": "Services de communication",
+    "consumer_discretionary": "Consommation discrétionnaire",
+    "consumer_staples": "Biens de consommation de base",
+    "financials": "Finance",
+    "energy": "Énergie",
+    "materials": "Matériaux",
+    "industrials": "Industrie",
+    "health_care": "Santé",
+    "utilities": "Services aux collectivités",
+    "real_estate": "Immobilier"
+  },
+  "venue": {
+    "NASDAQ": "Nasdaq",
+    "NYSE": "Bourse de New York (NYSE)",
+    "GPW": "Bourse de Varsovie (GPW)",
+    "XETRA": "Xetra (Francfort)",
+    "OSE": "Bourse d'Oslo"
+  },
+  "description": {
+    "crypto": "{name} ({symbol}) est une cryptomonnaie. Catégorie : {category}.",
+    "stock": "{name} ({symbol}) est une société cotée. Secteur : {category}. Bourse : {venue}.",
+    "stock_no_venue": "{name} ({symbol}) est une société cotée. Secteur : {category}.",
+    "unclassified": "{name} ({symbol})."
+  },
+  "seo": {
+    "market_title_crypto": "Cours {name} ({symbol}) aujourd'hui, graphique en direct | TradingMaster",
+    "market_title_stock": "Cours de l'action {name} ({symbol}), graphique en direct | TradingMaster",
+    "market_description_crypto": "{description} Cours {symbol} en direct, graphique en chandeliers et historique dans votre devise.",
+    "market_description_stock": "{description} Cours de l'action {symbol}, graphique en chandeliers et historique dans votre devise (cotations différées d'environ 15 minutes).",
+    "home_title": "Cours des cryptomonnaies et des actions en direct | TradingMaster",
+    "home_description": "Cours en direct, graphiques en chandeliers et historique des cryptomonnaies et des actions de Binance, Kraken, Coinbase et des principales bourses, dans votre devise.",
+    "markets_title": "Tous les marchés : cryptomonnaies et actions | TradingMaster",
+    "markets_description": "Annuaire de toutes les cryptomonnaies et actions suivies par TradingMaster : ce qu'est chacune, sa catégorie ou son secteur et où elle se négocie.",
+    "history_title": "Historique des cours | TradingMaster",
+    "history_description": "Historique archivé des cours des cryptomonnaies et des actions en chandeliers, par jour et par intervalle, dans votre devise.",
+    "system_title": "État du système | TradingMaster",
+    "login_title": "Connexion | TradingMaster",
+    "profile_title": "Votre compte | TradingMaster",
+    "not_found_title": "Page introuvable | TradingMaster",
+    "not_found_description": "Cette page n'existe pas.",
+    "breadcrumb_home": "Accueil",
+    "breadcrumb_markets": "Marchés"
+  }
+}

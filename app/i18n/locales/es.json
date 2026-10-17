@@ -1,0 +1,64 @@
+{
+  "asset_class": {
+    "crypto": "Criptomoneda",
+    "stock": "Acción"
+  },
+  "category": {
+    "currency": "Moneda digital",
+    "smart_contract_platform": "Plataforma de contratos inteligentes",
+    "layer2": "Escalado de capa 2",
+    "defi": "Finanzas descentralizadas (DeFi)",
+    "exchange_token": "Token de exchange",
+    "meme": "Memecoin",
+    "ai": "IA y computación",
+    "storage": "Almacenamiento descentralizado",
+    "oracle": "Red de oráculos",
+    "payments": "Pagos",
+    "infrastructure": "Infraestructura blockchain"
+  },
+  "sector": {
+    "technology": "Tecnología",
+    "communication_services": "Servicios de comunicación",
+    "consumer_discretionary": "Consumo discrecional",
+    "consumer_staples": "Consumo básico",
+    "financials": "Finanzas",
+    "energy": "Energía",
+    "materials": "Materiales",
+    "industrials": "Industria",
+    "health_care": "Salud",
+    "utilities": "Servicios públicos",
+    "real_estate": "Inmobiliario"
+  },
+  "venue": {
+    "NASDAQ": "Nasdaq",
+    "NYSE": "Bolsa de Nueva York (NYSE)",
+    "GPW": "Bolsa de Varsovia (GPW)",
+    "XETRA": "Xetra (Fráncfort)",
+    "OSE": "Bolsa de Oslo"
+  },
+  "description": {
+    "crypto": "{name} ({symbol}) es una criptomoneda. Categoría: {category}.",
+    "stock": "{name} ({symbol}) es una empresa cotizada. Sector: {category}. Bolsa: {venue}.",
+    "stock_no_venue": "{name} ({symbol}) es una empresa cotizada. Sector: {category}.",
+    "unclassified": "{name} ({symbol})."
+  },
+  "seo": {
+    "market_title_crypto": "Precio de {name} ({symbol}) hoy, gráfico en vivo | TradingMaster",
+    "market_title_stock": "Cotización de {name} ({symbol}), gráfico en vivo | TradingMaster",
+    "market_description_crypto": "{description} Precio de {symbol} en vivo, gráfico de velas e historial en tu moneda.",
+    "market_description_stock": "{description} Cotización de las acciones de {symbol}, gráfico de velas e historial en tu moneda (cotizaciones con unos 15 minutos de retraso).",
+    "home_title": "Precios de criptomonedas y acciones en vivo | TradingMaster",
+    "home_description": "Precios en vivo, gráficos de velas e historial de criptomonedas y acciones de Binance, Kraken, Coinbase y las principales bolsas, en tu propia moneda.",
+    "markets_title": "Todos los mercados: criptomonedas y acciones | TradingMaster",
+    "markets_description": "Directorio de todas las criptomonedas y acciones que sigue TradingMaster: qué es cada una, su categoría o sector y dónde cotiza.",
+    "history_title": "Historial de precios | TradingMaster",
+    "history_description": "Historial archivado de precios de criptomonedas y acciones en velas, por día e intervalo, en tu moneda.",
+    "system_title": "Estado del sistema | TradingMaster",
+    "login_title": "Iniciar sesión | TradingMaster",
+    "profile_title": "Tu cuenta | TradingMaster",
+    "not_found_title": "Página no encontrada | TradingMaster",
+    "not_found_description": "Esta página no existe.",
+    "breadcrumb_home": "Inicio",
+    "breadcrumb_markets": "Mercados"
+  }
+}

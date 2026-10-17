@@ -29,10 +29,12 @@ purpose: Yahoo quotes them in pence (GBp), not pounds.
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from app.helpers.instruments import catalog_rows, slugify
 from app.helpers.intervals import SUPPORTED_INTERVALS
 from app.helpers.markets import unified_ticker
 from app.helpers.sources import ASSET_CRYPTO, ASSET_STOCK, POLL_INTERVALS, POLL_METHOD
 from app.models.exchange import Exchange, Symbol
+from app.models.instrument import Instrument
 
 logger = logging.getLogger(__name__)
 
@@ -153,3 +155,35 @@ async def seed_exchanges(db: AsyncSession) -> None:
 
     await db.commit()
     logger.info("Exchange/symbol seeding complete")
+
+
+async def seed_instruments(db: AsyncSession) -> int:
+    """
+    Inserts catalogue instruments (app/helpers/instruments.py) that aren't in
+    the DB yet. Never updates a row: a name an operator changed through the API
+    stays changed. Returns the number of rows added.
+    """
+    existing = await db.execute(select(Instrument.symbol, Instrument.slug))
+    rows = existing.all()
+    symbols = {symbol for symbol, _ in rows}
+    slugs = {slug for _, slug in rows}
+
+    added = 0
+    for row in catalog_rows():
+        if row["symbol"] in symbols:
+            continue
+        if row["slug"] in slugs:
+            # An operator already gave another instrument this slug — don't
+            # fail startup over it; the symbol alone is still unique.
+            row = {**row, "slug": slugify(row["symbol"])}
+            if row["slug"] in slugs:
+                logger.warning(f"Instrument {row['symbol']} skipped — slug {row['slug']!r} is taken")
+                continue
+        db.add(Instrument(**row))
+        slugs.add(row["slug"])
+        added += 1
+
+    await db.commit()
+    if added:
+        logger.info(f"Seeded {added} instrument(s)")
+    return added

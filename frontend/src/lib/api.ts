@@ -129,9 +129,9 @@ function query(params: Record<string, string | number | undefined | null>): stri
 }
 
 export const api = {
-  /** Markets currently collected, one entry per unified ticker. */
-  markets(): Promise<Market[]> {
-    return requestData<Market[]>("/api/v1/market/markets");
+  /** Markets currently collected, one entry per unified ticker, described in `lang`. */
+  markets(lang?: string): Promise<Market[]> {
+    return requestData<Market[]>(`/api/v1/market/markets${query({ lang })}`);
   },
 
   /**

@@ -1,0 +1,64 @@
+{
+  "asset_class": {
+    "crypto": "Kryptowährung",
+    "stock": "Aktie"
+  },
+  "category": {
+    "currency": "Digitale Währung",
+    "smart_contract_platform": "Smart-Contract-Plattform",
+    "layer2": "Layer-2-Skalierung",
+    "defi": "Dezentrale Finanzen (DeFi)",
+    "exchange_token": "Börsen-Token",
+    "meme": "Meme-Coin",
+    "ai": "KI und Rechenleistung",
+    "storage": "Dezentraler Speicher",
+    "oracle": "Oracle-Netzwerk",
+    "payments": "Zahlungsverkehr",
+    "infrastructure": "Blockchain-Infrastruktur"
+  },
+  "sector": {
+    "technology": "Informationstechnologie",
+    "communication_services": "Kommunikationsdienste",
+    "consumer_discretionary": "Zyklische Konsumgüter",
+    "consumer_staples": "Basiskonsumgüter",
+    "financials": "Finanzwesen",
+    "energy": "Energie",
+    "materials": "Grundstoffe",
+    "industrials": "Industrie",
+    "health_care": "Gesundheitswesen",
+    "utilities": "Versorger",
+    "real_estate": "Immobilien"
+  },
+  "venue": {
+    "NASDAQ": "Nasdaq",
+    "NYSE": "New York Stock Exchange (NYSE)",
+    "GPW": "Warschauer Börse (GPW)",
+    "XETRA": "Xetra (Frankfurt)",
+    "OSE": "Osloer Börse"
+  },
+  "description": {
+    "crypto": "{name} ({symbol}) ist eine Kryptowährung. Kategorie: {category}.",
+    "stock": "{name} ({symbol}) ist ein börsennotiertes Unternehmen. Sektor: {category}. Börse: {venue}.",
+    "stock_no_venue": "{name} ({symbol}) ist ein börsennotiertes Unternehmen. Sektor: {category}.",
+    "unclassified": "{name} ({symbol})."
+  },
+  "seo": {
+    "market_title_crypto": "{name} ({symbol}) Kurs heute, Live-Chart | TradingMaster",
+    "market_title_stock": "{name} ({symbol}) Aktienkurs, Live-Chart | TradingMaster",
+    "market_description_crypto": "{description} Aktueller {name}-Kurs, Kerzenchart und Kurshistorie in Ihrer Währung.",
+    "market_description_stock": "{description} {name}-Aktienkurs, Kerzenchart und Kurshistorie in Ihrer Währung (Kurse ca. 15 Minuten verzögert).",
+    "home_title": "Krypto- und Aktienkurse live | TradingMaster",
+    "home_description": "Aktuelle Kurse, Kerzencharts und Kurshistorie für Kryptowährungen und Aktien von Binance, Kraken, Coinbase und großen Börsen, in Ihrer eigenen Währung.",
+    "markets_title": "Alle Märkte: Kryptowährungen und Aktien | TradingMaster",
+    "markets_description": "Verzeichnis aller Kryptowährungen und Aktien, die TradingMaster verfolgt: was sie sind, ihre Kategorie oder Branche und wo sie gehandelt werden.",
+    "history_title": "Kurshistorie | TradingMaster",
+    "history_description": "Archivierte Kurshistorie von Kryptowährungen und Aktien als Kerzenchart, nach Tag und Intervall, in Ihrer Währung.",
+    "system_title": "Systemstatus | TradingMaster",
+    "login_title": "Anmelden | TradingMaster",
+    "profile_title": "Ihr Konto | TradingMaster",
+    "not_found_title": "Seite nicht gefunden | TradingMaster",
+    "not_found_description": "Diese Seite existiert nicht.",
+    "breadcrumb_home": "Startseite",
+    "breadcrumb_markets": "Märkte"
+  }
+}

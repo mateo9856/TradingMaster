@@ -1,11 +1,13 @@
+import { useTranslation } from "react-i18next";
+
 import { Badge } from "@/components/ui/badge";
 import type { ConnectionStatus } from "@/hooks/useLiveCandles";
 
-const LABELS: Record<ConnectionStatus, { text: string; tone: "success" | "warning" | "danger" | "neutral" }> = {
-  live: { text: "Live", tone: "success" },
-  connecting: { text: "Connecting…", tone: "warning" },
-  closed: { text: "Reconnecting…", tone: "warning" },
-  error: { text: "Stream error", tone: "danger" },
+const TONES: Record<ConnectionStatus, "success" | "warning" | "danger" | "neutral"> = {
+  live: "success",
+  connecting: "warning",
+  closed: "warning",
+  error: "danger",
 };
 
 export function ConnectionBadge({
@@ -17,7 +19,9 @@ export function ConnectionBadge({
   error?: string | null;
   count?: number;
 }) {
-  const { text, tone } = LABELS[status];
+  const { t } = useTranslation();
+  const tone = TONES[status];
+  const text = t(`connection.${status}`);
   return (
     <Badge tone={tone} title={error ?? undefined} aria-live="polite">
       <span
@@ -27,7 +31,7 @@ export function ConnectionBadge({
       />
       {text}
       {typeof count === "number" && count > 0 ? (
-        <span className="tabular opacity-70">· {count} msg</span>
+        <span className="tabular opacity-70">· {t("connection.messages", { count })}</span>
       ) : null}
     </Badge>
   );

@@ -1,34 +1,39 @@
-import { NavLink, Outlet } from "react-router-dom";
+import { Outlet } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 
 import { CurrencySelect } from "@/components/CurrencySelect";
+import { LanguageSelect } from "@/components/LanguageSelect";
+import { LocalizedNavLink } from "@/components/LocalizedLink";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 const NAV = [
-  { to: "/", label: "Live", end: true },
-  { to: "/history", label: "History" },
-  { to: "/system", label: "System" },
-];
+  { to: "/", key: "nav.live", end: true },
+  { to: "/markets", key: "nav.markets" },
+  { to: "/history", key: "nav.history" },
+  { to: "/system", key: "nav.system" },
+] as const;
 
 export function AppShell() {
   const { user } = useAuth();
+  const { t } = useTranslation();
 
   return (
     <div className="min-h-dvh bg-background">
       <header className="sticky top-0 z-10 border-b border-border bg-background/90 backdrop-blur">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
-          <NavLink to="/" className="flex items-center gap-2 font-semibold tracking-tight">
+          <LocalizedNavLink to="/" className="flex items-center gap-2 font-semibold tracking-tight">
             TradingMaster
-            <Badge tone="info">MVP</Badge>
-          </NavLink>
+            <Badge tone="info">{t("nav.mvp")}</Badge>
+          </LocalizedNavLink>
 
-          <nav className="flex items-center gap-1 text-sm">
+          <nav aria-label={t("nav.main")} className="flex items-center gap-1 text-sm">
             {NAV.map((item) => (
-              <NavLink
+              <LocalizedNavLink
                 key={item.to}
                 to={item.to}
-                end={item.end}
+                end={"end" in item ? item.end : undefined}
                 className={({ isActive }) =>
                   cn(
                     "rounded-md px-3 py-1.5 transition-colors",
@@ -36,21 +41,22 @@ export function AppShell() {
                   )
                 }
               >
-                {item.label}
-              </NavLink>
+                {t(item.key)}
+              </LocalizedNavLink>
             ))}
           </nav>
 
-          <div className="ml-auto flex items-center gap-4 text-sm">
-            <CurrencySelect aria-label="Currency" className="h-8 w-auto" />
+          <div className="ml-auto flex items-center gap-3 text-sm">
+            <LanguageSelect className="h-8 w-auto" />
+            <CurrencySelect aria-label={t("nav.currency")} className="h-8 w-auto" />
             {user ? (
-              <NavLink to="/profile" className="text-muted-foreground hover:text-foreground">
+              <LocalizedNavLink to="/profile" className="text-muted-foreground hover:text-foreground">
                 {user.email}
-              </NavLink>
+              </LocalizedNavLink>
             ) : (
-              <NavLink to="/login" className="text-muted-foreground hover:text-foreground">
-                Sign in
-              </NavLink>
+              <LocalizedNavLink to="/login" className="text-muted-foreground hover:text-foreground">
+                {t("nav.signIn")}
+              </LocalizedNavLink>
             )}
           </div>
         </div>

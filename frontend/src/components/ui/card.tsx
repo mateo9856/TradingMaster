@@ -16,16 +16,20 @@ export function CardHeader({
   description,
   actions,
   className,
+  level = 2,
 }: {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
   className?: string;
+  /** Heading level — 1 when the card is the page's main heading (one <h1> per page). */
+  level?: 1 | 2;
 }) {
+  const Heading = level === 1 ? "h1" : "h2";
   return (
     <div className={cn("flex flex-wrap items-start justify-between gap-3 border-b border-border p-4", className)}>
       <div className="min-w-0">
-        <h2 className="text-sm font-semibold tracking-tight">{title}</h2>
+        <Heading className="text-sm font-semibold tracking-tight">{title}</Heading>
         {description ? <p className="mt-1 text-xs text-muted-foreground">{description}</p> : null}
       </div>
       {actions ? <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div> : null}
