@@ -14,6 +14,7 @@ import type {
   Market,
   User,
 } from "./types";
+import type { QuoteRequest, Trade, TradePage, TradingCapabilities, TradingQuote, Wallet } from "./trading";
 
 /** An API call that came back with a non-2xx status. */
 export class ApiError extends Error {
@@ -129,6 +130,38 @@ function query(params: Record<string, string | number | undefined | null>): stri
 }
 
 export const api = {
+  tradingCapabilities(): Promise<TradingCapabilities> {
+    return requestData("/api/v1/trading/capabilities");
+  },
+  initializeWallet(): Promise<Wallet> {
+    return requestData("/api/v1/trading/wallet/initialize", { method: "POST" });
+  },
+  tradingQuote(body: QuoteRequest): Promise<TradingQuote> {
+    return requestData("/api/v1/trading/quotes", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+  },
+  buyTrade(quoteId: string, key: string): Promise<{ wallet: Wallet; trade: Trade }> {
+    return requestData("/api/v1/trading/trades", {
+      method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+      body: JSON.stringify({ quote_id: quoteId }),
+    });
+  },
+  sellTrade(tradeId: string, quoteId: string, key: string): Promise<{ wallet: Wallet; trade: Trade }> {
+    return requestData(`/api/v1/trading/trades/${tradeId}/sell`, {
+      method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+      body: JSON.stringify({ quote_id: quoteId }),
+    });
+  },
+  trades(status: "open" | "closed", offset = 0): Promise<TradePage> {
+    return requestData(`/api/v1/trading/trades${query({ status, offset })}`);
+  },
+  demoTopUp(amount: string, key: string): Promise<Wallet> {
+    return requestData("/api/v1/trading/wallet/demo-top-ups", {
+      method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+      body: JSON.stringify({ amount }),
+    });
+  },
   /** Markets currently collected, one entry per unified ticker, described in `lang`. */
   markets(lang?: string): Promise<Market[]> {
     return requestData<Market[]>(`/api/v1/market/markets${query({ lang })}`);

@@ -8,6 +8,7 @@ real sessions with a key that is published in this repository.
 """
 
 from pathlib import Path
+from decimal import Decimal, InvalidOperation
 
 from dotenv import load_dotenv
 import os
@@ -179,6 +180,18 @@ AUTH_COOKIE_NAME: str = os.getenv("AUTH_COOKIE_NAME", "tradingmaster_auth")
 # be overridden (AUTH_COOKIE_SECURE=true) in every real deployment.
 AUTH_COOKIE_SECURE: bool = os.getenv("AUTH_COOKIE_SECURE", "false").lower() == "true"
 
+# Paper trading is explicitly opt-in and cannot run outside development.
+DEV_TRADING_ENABLED: bool = os.getenv("DEV_TRADING_ENABLED", "false").lower() == "true"
+DEV_GUEST_ENABLED: bool = os.getenv("DEV_GUEST_ENABLED", "false").lower() == "true"
+DEV_GUEST_EMAIL: str = os.getenv("DEV_GUEST_EMAIL", "").strip()
+DEV_GUEST_PASSWORD: str = os.getenv("DEV_GUEST_PASSWORD", "")
+try:
+    DEV_INITIAL_CREDITS = Decimal(os.getenv("DEV_INITIAL_CREDITS", "10000"))
+except InvalidOperation as exc:
+    raise ValueError("DEV_INITIAL_CREDITS must be a finite, non-negative decimal") from exc
+TRADING_CRYPTO_MAX_AGE_SECONDS: int = int(os.getenv("TRADING_CRYPTO_MAX_AGE_SECONDS", "30"))
+TRADING_STOCK_MAX_AGE_SECONDS: int = int(os.getenv("TRADING_STOCK_MAX_AGE_SECONDS", "1200"))
+
 # ── Startup validation ───────────────────────────────────────────────────────
 
 class ConfigError(RuntimeError):
@@ -193,6 +206,16 @@ def validate_config() -> None:
 
     Runs at import time; set APP_ENV=development (the default) to skip.
     """
+    if (DEV_TRADING_ENABLED or DEV_GUEST_ENABLED) and APP_ENV != "development":
+        raise ConfigError("Development trading and Guest seeding require APP_ENV=development")
+    if DEV_GUEST_ENABLED and (not DEV_TRADING_ENABLED or not DEV_GUEST_EMAIL or not DEV_GUEST_PASSWORD):
+        raise ConfigError("Guest seeding requires trading enabled and configured Guest email/password")
+    if (not DEV_INITIAL_CREDITS.is_finite() or DEV_INITIAL_CREDITS < 0
+            or DEV_INITIAL_CREDITS >= Decimal("1e20")
+            or DEV_INITIAL_CREDITS.as_tuple().exponent < -8):
+        raise ConfigError("DEV_INITIAL_CREDITS must be non-negative, below 1e20, with at most 8 decimals")
+    if min(TRADING_CRYPTO_MAX_AGE_SECONDS, TRADING_STOCK_MAX_AGE_SECONDS) <= 0:
+        raise ConfigError("Trading quote age limits must be positive")
     if not IS_PRODUCTION:
         return
 

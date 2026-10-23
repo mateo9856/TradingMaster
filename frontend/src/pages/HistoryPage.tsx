@@ -20,7 +20,7 @@ import { useLanguage } from "@/hooks/useLanguage";
 import { useAuth } from "@/lib/auth";
 import { BASE_CURRENCY, formatMoney } from "@/lib/currency";
 import { useCurrency } from "@/lib/currency-context";
-import { formatTimestamp, formatVolume, todayUtc } from "@/lib/format";
+import { formatExchange, formatTimestamp, formatVolume, todayUtc } from "@/lib/format";
 import { marketName } from "@/lib/market";
 import { INTERVALS } from "@/lib/types";
 
@@ -150,7 +150,7 @@ export function HistoryPage() {
                   <option value="">{t("history.all")}</option>
                   {[...new Set(markets.flatMap((market) => market.exchanges))].sort().map((name) => (
                     <option key={name} value={name}>
-                      {name}
+                      {formatExchange(name)}
                     </option>
                   ))}
                 </Select>
@@ -196,7 +196,7 @@ export function HistoryPage() {
                     {rows.map((row) => (
                       <tr key={row.id} className="border-b border-border/60">
                         <td className="tabular py-1.5 pr-3">{formatTimestamp(row.timestamp)}</td>
-                        <td className="py-1.5 pr-3">{row.exchange}</td>
+                        <td className="py-1.5 pr-3">{formatExchange(row.exchange)}</td>
                         <td className="py-1.5 pr-3 text-muted-foreground">{row.source_ticker ?? "—"}</td>
                         <td className="tabular py-1.5 pr-3 text-right">{formatMoney(row.open_price, currency)}</td>
                         <td className="tabular py-1.5 pr-3 text-right">{formatMoney(row.high_price, currency)}</td>

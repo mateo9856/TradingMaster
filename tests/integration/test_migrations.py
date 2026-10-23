@@ -86,7 +86,20 @@ def test_upgrade_head_builds_the_schema_from_empty(scratch_database):
             ).fetchall()
         }
 
-    assert {"candles", "candles_history", "exchanges", "symbols", "users"} <= tables
+    assert {"candles", "candles_history", "exchanges", "symbols", "users",
+            "trading_wallets", "trading_quotes", "trading_trades", "trading_credit_entries"} <= tables
+
+
+def test_trading_revision_can_downgrade_and_reupgrade(scratch_database):
+    assert _alembic(scratch_database, "upgrade", "head").returncode == 0
+    result = _alembic(scratch_database, "downgrade", "0005_instruments")
+    assert result.returncode == 0, result.stderr
+    import psycopg
+    with psycopg.connect(_sync_url(scratch_database)) as conn:
+        assert conn.execute("SELECT to_regclass('public.trading_wallets')").fetchone()[0] is None
+        assert conn.execute("SELECT to_regclass('public.users')").fetchone()[0] is not None
+    result = _alembic(scratch_database, "upgrade", "head")
+    assert result.returncode == 0, result.stderr
 
 
 def test_models_have_not_drifted_from_the_migrations(scratch_database):

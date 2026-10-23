@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   changeDirection,
   formatChange,
+  formatExchange,
   formatPrice,
   formatTimestamp,
   formatVolume,
@@ -11,6 +12,20 @@ import {
   toNumber,
   todayUtc,
 } from "./format";
+
+describe("exchange display names", () => {
+  it.each([
+    ["binance", "Binance"],
+    ["kraken", "Kraken"],
+    ["coinbase", "Coinbase"],
+    ["yahoo", "Yahoo Finance"],
+    ["BINANCE", "Binance"],
+    ["customExchange", "CustomExchange"],
+    ["", ""],
+  ])("formats %s as %s", (id, label) => {
+    expect(formatExchange(id)).toBe(label);
+  });
+});
 
 describe("toNumber", () => {
   it("parses the feed's 8-decimal strings", () => {

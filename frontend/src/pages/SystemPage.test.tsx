@@ -42,6 +42,8 @@ describe("metrics", () => {
     expect(screen.getByText("▼ 2")).toBeInTheDocument();          // dropped candles, flagged
     expect(screen.getByText("▼ 5")).toBeInTheDocument();          // peg fallbacks, flagged
     expect(screen.getByText("120")).toBeInTheDocument();          // binance breakdown
+    expect(screen.getByText("Binance")).toBeInTheDocument();
+    expect(screen.getByText("Kraken")).toBeInTheDocument();
     expect(screen.getByText("$0.99973000")).toBeInTheDocument();  // live USDT rate, always 8 decimals
   });
 

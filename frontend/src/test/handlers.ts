@@ -95,6 +95,7 @@ export const USER: User = {
 };
 
 export const handlers = [
+  http.get("/api/v1/trading/capabilities", () => HttpResponse.json(envelope({ enabled: false, simulated: true, payment_methods: {} }))),
   http.get("/api/v1/market/markets", () => HttpResponse.json(envelope(MARKETS))),
   http.get("/api/v1/currencies", () => HttpResponse.json(envelope(CURRENCIES))),
   http.get("/api/v1/market/candles/*", () => HttpResponse.json(envelope([candle()]))),

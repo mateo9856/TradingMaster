@@ -59,6 +59,8 @@
     "not_found_title": "Seite nicht gefunden | TradingMaster",
     "not_found_description": "Diese Seite existiert nicht.",
     "breadcrumb_home": "Startseite",
-    "breadcrumb_markets": "Märkte"
+    "breadcrumb_markets": "Märkte",
+    "trades_title": "Meine Trades | TradingMaster",
+    "trades_description": "Simulierter Handel · nur Entwicklungsguthaben"
   }
 }

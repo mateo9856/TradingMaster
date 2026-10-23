@@ -7,6 +7,7 @@ import { LocalizedNavLink } from "@/components/LocalizedLink";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import { useTradingCapabilities } from "@/lib/trading";
 
 const NAV = [
   { to: "/", key: "nav.live", end: true },
@@ -18,6 +19,7 @@ const NAV = [
 export function AppShell() {
   const { user } = useAuth();
   const { t } = useTranslation();
+  const trading = useTradingCapabilities();
 
   return (
     <div className="min-h-dvh bg-background">
@@ -44,6 +46,7 @@ export function AppShell() {
                 {t(item.key)}
               </LocalizedNavLink>
             ))}
+            {trading.data?.enabled && <LocalizedNavLink to="/trades" className="rounded-md px-3 py-1.5">{t("trading.title")}</LocalizedNavLink>}
           </nav>
 
           <div className="ml-auto flex items-center gap-3 text-sm">

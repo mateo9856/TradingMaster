@@ -194,9 +194,72 @@ The API starts the Kafka producer automatically. To run only the producer separa
 python -m app.producer_runner
 ```
 
+## Development simulated trading
+
+Trading is opt-in and requires `APP_ENV=development`. Apply `alembic upgrade head`
+before starting the API, then configure your local `.env`:
+
+```dotenv
+APP_ENV=development
+DEV_TRADING_ENABLED=true
+DEV_INITIAL_CREDITS=10000
+DEV_GUEST_ENABLED=true
+DEV_GUEST_EMAIL=demo@example.com
+DEV_GUEST_PASSWORD=<choose-a-password-of-at-least-12-characters>
+```
+
+Sign in with the configured Guest credentials, or a registered account. Guest
+creation follows the normal password policy; it never replaces another account
+or resets an existing Guest password. Every user gets a separate wallet with
+`DEV_INITIAL_CREDITS` once, on opening trading. Changing the setting or restarting
+the API preserves existing balances. **1 credit = 1 USD**, independent of the
+chart's display currency. Use **My Trades → Add demo credits** to replenish funds.
+
+Enter a credit budget on a market page, preview the bid/ask and quantity, then
+confirm within 15 seconds. Each purchase becomes a separate trade. **My Trades**
+shows open positions, spread-adjusted profit/loss, full-trade selling and closed
+history. Buys use ask; sales and open-position valuations use bid, so an immediate
+sale normally loses the spread. Fractional crypto and shares are supported;
+quantity rounds down to eight decimals and unused credits stay in the wallet.
+
+Quotes come from public CCXT order books and Yahoo stock bid/ask, separate from
+the candle pipeline. Yahoo prices may be delayed and its bid/ask coverage varies:
+missing quotes, missing session metadata, closed stock markets and unavailable
+USD conversion disable trading. Yahoo's regular-market timestamp is a freshness
+proxy, not a dedicated bid/ask timestamp. Source timestamps and retrieval times
+remain distinct; untimestamped crypto books use retrieval time for freshness.
+`TRADING_CRYPTO_MAX_AGE_SECONDS=30` and `TRADING_STOCK_MAX_AGE_SECONDS=1200`
+control source age limits. Fiat conversion requires an ECB rate no older than
+seven days; stablecoins require a live FX order book with no peg fallback.
+
+Private API endpoints live under `/api/v1/trading`: `POST /wallet/initialize`,
+`GET /wallet`, `POST /wallet/demo-top-ups`, `POST /quotes`, `POST /trades`,
+`GET /trades?status=open|closed&limit=10&offset=0`, and `POST /trades/{id}/sell`.
+`GET /capabilities` is public. All other routes require an active user; cookie
+writes also require `X-Requested-With`. Executions and top-ups require a UUID
+`Idempotency-Key` header; reuse it only when retrying the identical request.
+
+```json
+{"side": "buy", "exchange": "kraken", "ticker": "BTC/USD", "budget": "100"}
+```
+
+Send this to `POST /quotes`, then its returned `id` as `{"quote_id": "…"}` to
+`POST /trades`. To sell, request `{"side": "sell", "trade_id": "…"}` and submit
+the new quote ID to the trade's `/sell` endpoint. Amounts are decimal strings.
+Expired previews require a new confirmation. Trades, balances, ledger entries,
+and quote consumption commit atomically; duplicate submissions cannot double
+spend or sell the same trade twice.
+
+Card, PayPal and bank transfer are **TODO / Coming soon** placeholders. No real
+payments or exchange orders are submitted. Fees, partial sales, order-book depth
+and slippage are deferred. Development trading and Guest seeding settings cause
+startup to fail outside development. Apply migrations with the feature disabled
+first; enable it explicitly after deployment. Downgrading migration `0006` removes
+the simulated trading records, so preserve them before a rollback if needed.
+
 ## Auth
 
-User accounts are provided by [FastAPI Users](https://fastapi-users.github.io/fastapi-users/) (`app/auth/`), backed by a `users` table via `fastapi-users-db-sqlalchemy`. All read (`GET`) endpoints and the market WebSocket stream remain public; every mutating (`POST`/`PUT`/`PATCH`) endpoint under `/api/v1/market`, `/api/v1/exchanges`, and the manual history-archive trigger requires an authenticated active user.
+User accounts are provided by [FastAPI Users](https://fastapi-users.github.io/fastapi-users/) (`app/auth/`), backed by a `users` table via `fastapi-users-db-sqlalchemy`. Market read endpoints and the market WebSocket remain public. Wallet/trade reads and writes are private; every mutating (`POST`/`PUT`/`PATCH`) endpoint under `/api/v1/market`, `/api/v1/exchanges`, and the manual history-archive trigger requires an authenticated active user.
 
 The same JWT travels two ways, and protected endpoints accept either:
 

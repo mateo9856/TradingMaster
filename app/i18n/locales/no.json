@@ -59,6 +59,8 @@
     "not_found_title": "Fant ikke siden | TradingMaster",
     "not_found_description": "Denne siden finnes ikke.",
     "breadcrumb_home": "Hjem",
-    "breadcrumb_markets": "Markeder"
+    "breadcrumb_markets": "Markeder",
+    "trades_title": "Mine handler | TradingMaster",
+    "trades_description": "Simulert handel · bare utviklingskreditter"
   }
 }

@@ -59,6 +59,8 @@
     "not_found_title": "Página no encontrada | TradingMaster",
     "not_found_description": "Esta página no existe.",
     "breadcrumb_home": "Inicio",
-    "breadcrumb_markets": "Mercados"
+    "breadcrumb_markets": "Mercados",
+    "trades_title": "Mis operaciones | TradingMaster",
+    "trades_description": "Trading simulado · solo créditos de desarrollo"
   }
 }

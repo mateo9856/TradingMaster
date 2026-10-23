@@ -7,6 +7,18 @@
 
 import { intlLocale } from "./i18n";
 
+const EXCHANGE_NAMES = new Map([
+  ["binance", "Binance"],
+  ["kraken", "Kraken"],
+  ["coinbase", "Coinbase"],
+  ["yahoo", "Yahoo Finance"],
+]);
+
+/** Exchange label for display; keep the original ID in requests and stored data. */
+export function formatExchange(exchange: string): string {
+  return EXCHANGE_NAMES.get(exchange.toLowerCase()) ?? exchange.charAt(0).toUpperCase() + exchange.slice(1);
+}
+
 /** Decimal string (or number) → number, for charting and maths. NaN-safe: throws instead. */
 export function toNumber(value: string | number): number {
   // Number("") is 0 — an empty price must fail loudly, not render as zero.

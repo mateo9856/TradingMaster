@@ -19,9 +19,9 @@ describe("searching archived candles", () => {
     await search();
 
     expect(await screen.findByText("2026-09-19 12:00:00")).toBeInTheDocument();
-    // Scoped to the table — "binance" also appears in the exchange filter.
+    // Scoped to the table — "Binance" also appears in the exchange filter.
     const table = within(screen.getByRole("table"));
-    expect(table.getByText("binance")).toBeInTheDocument();
+    expect(table.getByText("Binance")).toBeInTheDocument();
     expect(table.getByText("BTC/USDT")).toBeInTheDocument();
     expect(table.getByText("$65,200.00")).toBeInTheDocument();
     expect(screen.getByText(/1 row/)).toBeInTheDocument();
@@ -38,11 +38,14 @@ describe("searching archived candles", () => {
     renderApp(<HistoryPage />);
 
     await userEvent.selectOptions(screen.getByLabelText("Interval"), "1h");
+    await userEvent.selectOptions(screen.getByLabelText("Exchange"), "binance");
+    expect(screen.getByRole("option", { name: "Binance" })).toHaveValue("binance");
     await search();
 
     await waitFor(() => expect(url).not.toBeNull());
     expect(url!.pathname).toBe("/api/v1/history/BTC%2FUSD");
     expect(url!.searchParams.get("interval")).toBe("1h");
+    expect(url!.searchParams.get("exchange")).toBe("binance");
     expect(url!.searchParams.get("date_from")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 

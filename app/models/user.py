@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String
+from sqlalchemy import Boolean, Column, String, false
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID
 from .database import Base
 
@@ -13,3 +13,4 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     # Display currency chosen in the UI ("PLN"); NULL means "detect from the
     # browser". Validated against app/helpers/currencies.FIAT_CURRENCIES.
     preferred_currency = Column(String(3), nullable=True)
+    is_dev_guest = Column(Boolean, nullable=False, default=False, server_default=false())

@@ -28,6 +28,8 @@ describe("loading markets", () => {
     expect(await screen.findByTestId("candle-chart")).toBeInTheDocument();
     expect(screen.getByLabelText("Market")).toHaveValue("BTC/USD");
     expect(screen.getByLabelText("Exchange")).toHaveValue("binance");
+    expect(within(screen.getByLabelText("Exchange")).getAllByRole("option").map((o) => o.textContent))
+      .toEqual(["Binance", "Kraken"]);
     expect(within(screen.getByLabelText("Interval")).getAllByRole("option").map((o) => o.textContent))
       .toEqual(MARKETS[0].intervals);
   });
@@ -61,7 +63,7 @@ describe("candles", () => {
     expect(screen.getByText("▲ $65,200.00")).toBeInTheDocument();
     expect(screen.getByText("USD conversion")).toBeInTheDocument();
     expect(screen.getByText("0.99980000")).toBeInTheDocument();
-    expect(screen.getByText(/trades this as BTC\/USDT/)).toBeInTheDocument();
+    expect(screen.getByText(/Binance trades this as BTC\/USDT/)).toBeInTheDocument();
   });
 
   it("explains a 404 as 'nothing stored yet', not an error", async () => {
@@ -94,6 +96,23 @@ describe("candles", () => {
 
     await waitFor(() => expect(requested).toContain("1h"));
   });
+
+  it("keeps the exchange ID in HTTP and WebSocket requests when selecting a display name", async () => {
+    installFakeWebSocket();
+    const exchanges: (string | null)[] = [];
+    server.use(http.get("/api/v1/market/candles/*", ({ request }) => {
+      exchanges.push(new URL(request.url).searchParams.get("exchange"));
+      return HttpResponse.json(envelope([candle()]));
+    }));
+    renderApp(<LivePage />);
+    await screen.findByTestId("candle-chart");
+    await userEvent.selectOptions(screen.getByLabelText("Exchange"), screen.getByRole("option", { name: "Kraken" }));
+    expect(screen.getByLabelText("Exchange")).toHaveValue("kraken");
+    await waitFor(() => expect(FakeWebSocket.last.url).toContain("exchange=kraken"));
+    expect(exchanges).toContain("kraken");
+    expect(exchanges.every((exchange) => exchange === "kraken" || exchange === "binance")).toBe(true);
+    expect(screen.getByText("Kraken · BTC/USD · 1m")).toBeInTheDocument();
+  });
 });
 
 describe("live stream", () => {
@@ -107,6 +126,9 @@ describe("live stream", () => {
     FakeWebSocket.last.emit(liveCandle());
 
     expect(await screen.findByText(/"source_ticker": "BTC\/USDT"/)).toBeInTheDocument();
+    expect(screen.getByText(/"exchange": "binance"/)).toBeInTheDocument();
+    const stream = screen.getByRole("heading", { name: "Last live message" }).parentElement!.parentElement!;
+    expect(within(stream).getByText("Binance")).toBeInTheDocument();
     expect(screen.getByText("Live")).toBeInTheDocument();
   });
 

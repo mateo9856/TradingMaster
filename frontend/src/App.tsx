@@ -9,6 +9,7 @@ import { MarketsPage } from "@/pages/MarketsPage";
 import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { SystemPage } from "@/pages/SystemPage";
+import { TradesPage } from "@/pages/TradesPage";
 
 /**
  * Every route exists once per language: unprefixed for English, /pl/…, /de/…
@@ -27,6 +28,7 @@ export function App() {
           <Route path="system" element={<SystemPage />} />
           <Route path="login" element={<LoginPage />} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="trades" element={<TradesPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>

@@ -35,7 +35,8 @@ from app.models.schema_check import assert_schema_at_head
 from app.models.seeder import seed_exchanges, seed_instruments
 from app.fiat.rates import fiat_rates, watch_fiat_rates
 from app.kafka.producer import run_producer
-from app.routers import currencies, exchanges, history, instruments, market
+from app.routers import currencies, exchanges, history, instruments, market, trading
+from app.trading.guest import seed_guest
 from app.routers.market import load_markets
 from app.tracing import setup_tracing
 
@@ -59,6 +60,7 @@ async def lifespan(application: FastAPI):
     async with AsyncSessionLocal() as db:
         await seed_exchanges(db)
         await seed_instruments(db)
+        await seed_guest(db)
 
     # ECB reference rates for the display currencies. Its own task, not part of
     # the producer: prices must still be readable in PLN while Kafka is down
@@ -170,6 +172,7 @@ app.include_router(exchanges.router)
 app.include_router(history.router)
 app.include_router(currencies.router)
 app.include_router(instruments.router)
+app.include_router(trading.router)
 
 # Two login routes for the same accounts: the browser takes the cookie one
 # (nothing readable ends up in the page), API clients take the bearer one.

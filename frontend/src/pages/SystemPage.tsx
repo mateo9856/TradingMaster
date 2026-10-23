@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { StatTile } from "@/components/StatTile";
 import { api } from "@/lib/api";
+import { formatExchange } from "@/lib/format";
 import { intlLocale } from "@/lib/i18n";
 import { metricSamples, metricTotal, parseMetrics } from "@/lib/metrics";
 
@@ -108,7 +109,7 @@ export function SystemPage() {
                 {byExchange.size ? (
                   [...byExchange.entries()].sort().map(([exchange, value]) => (
                     <div key={exchange} className="flex items-center justify-between">
-                      <span>{exchange}</span>
+                      <span>{formatExchange(exchange)}</span>
                       <span className="tabular text-muted-foreground">{count(value)}</span>
                     </div>
                   ))

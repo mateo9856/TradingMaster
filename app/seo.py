@@ -47,9 +47,10 @@ STATIC_PAGES: dict[str, str] = {
     "system": "system",
     "login": "login",
     "profile": "profile",
+    "trades": "trades",
 }
 # Real pages, but nothing a search result should lead to.
-NOINDEX_PAGES = {"system", "login", "profile"}
+NOINDEX_PAGES = {"system", "login", "profile", "trades"}
 # Listed in the sitemap, besides one page per market.
 SITEMAP_PAGES = ("", "markets", "history")
 

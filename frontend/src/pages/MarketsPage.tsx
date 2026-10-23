@@ -20,6 +20,7 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { useLanguage } from "@/hooks/useLanguage";
 import { api } from "@/lib/api";
+import { formatExchange } from "@/lib/format";
 import { marketName, marketSlug, marketSymbol, searchText } from "@/lib/market";
 import type { AssetClass } from "@/lib/types";
 
@@ -124,7 +125,7 @@ export function MarketsPage() {
                       </td>
                       <td className="py-2 pr-3 text-muted-foreground">{market.category_label ?? "—"}</td>
                       <td className="py-2 pr-3 text-muted-foreground">{market.venue_label ?? "—"}</td>
-                      <td className="py-2 text-muted-foreground">{market.exchanges.join(", ")}</td>
+                      <td className="py-2 text-muted-foreground">{market.exchanges.map(formatExchange).join(", ")}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { CandleChart } from "@/components/CandleChart";
+import { PurchasePanel } from "@/components/PurchasePanel";
 import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { LocalizedLink, useLocalizedPath } from "@/components/LocalizedLink";
 import { Seo } from "@/components/Seo";
@@ -29,7 +30,7 @@ import { useLiveCandles } from "@/hooks/useLiveCandles";
 import { ApiError, api } from "@/lib/api";
 import { BASE_CURRENCY, displayTicker, formatMoney } from "@/lib/currency";
 import { useCurrency } from "@/lib/currency-context";
-import { formatChange, formatPrice, formatTimestamp, formatVolume } from "@/lib/format";
+import { formatChange, formatExchange, formatPrice, formatTimestamp, formatVolume } from "@/lib/format";
 import { marketName, marketSlug, marketSymbol } from "@/lib/market";
 import type { AssetClass, Candle, LiveCandle, Market } from "@/lib/types";
 
@@ -163,7 +164,7 @@ export function LivePage() {
   const conversion =
     currency === BASE_CURRENCY
       ? stats?.sourceTicker && stats.sourceTicker !== market.ticker
-        ? t("live.conversionNative", { exchange, source: stats.sourceTicker })
+        ? t("live.conversionNative", { exchange: formatExchange(exchange ?? ""), source: stats.sourceTicker })
         : t("live.conversionStored")
       : stats?.rateDate
         ? t("live.conversionDisplayDate", { currency, date: stats.rateDate })
@@ -273,7 +274,7 @@ export function LivePage() {
               >
                 {market.exchanges.map((option) => (
                   <option key={option} value={option}>
-                    {option}
+                    {formatExchange(option)}
                   </option>
                 ))}
               </Select>
@@ -315,13 +316,13 @@ export function LivePage() {
       ) : null}
 
       <Card>
-        <CardHeader title={t("live.price")} description={`${exchange} · ${shownTicker} · ${interval}`} />
+        <CardHeader title={t("live.price")} description={`${formatExchange(exchange ?? "")} · ${shownTicker} · ${interval}`} />
         <CardBody>
           {candlesQuery.isPending ? (
             <p className="text-sm text-muted-foreground">{t("live.loadingCandles")}</p>
           ) : candlesQuery.error instanceof ApiError && candlesQuery.error.isNotFound ? (
             <Alert tone="warning" title={t("live.noCandlesTitle")}>
-              {t("live.noCandlesBody", { market: shownTicker, interval, exchange })}
+              {t("live.noCandlesBody", { market: shownTicker, interval, exchange: formatExchange(exchange ?? "") })}
             </Alert>
           ) : candlesQuery.isError ? (
             <Alert tone="danger" title={t("live.candlesErrorTitle")}>
@@ -333,6 +334,8 @@ export function LivePage() {
         </CardBody>
       </Card>
 
+      {exchange && <PurchasePanel ticker={market.ticker} exchange={exchange} />}
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader title={t("live.perExchangeTitle")} description={t("live.perExchangeDescription")} />
@@ -342,7 +345,7 @@ export function LivePage() {
               const latest = result?.data?.[0];
               return (
                 <div key={exchangeName} className="flex items-center justify-between gap-3 text-sm">
-                  <span className="font-medium">{exchangeName}</span>
+                  <span className="font-medium">{formatExchange(exchangeName)}</span>
                   {latest ? (
                     <span className="tabular text-muted-foreground">
                       {formatMoney(latest.close_price, currency)}{" "}
@@ -363,7 +366,7 @@ export function LivePage() {
           <CardHeader
             title={t("live.lastMessageTitle")}
             description={t("live.lastMessageDescription")}
-            actions={liveCandle ? <Badge tone="info">{liveCandle.exchange}</Badge> : null}
+            actions={liveCandle ? <Badge tone="info">{formatExchange(liveCandle.exchange)}</Badge> : null}
           />
           <CardBody>
             {liveCandle ? (

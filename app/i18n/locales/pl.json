@@ -59,6 +59,8 @@
     "not_found_title": "Nie znaleziono strony | TradingMaster",
     "not_found_description": "Ta strona nie istnieje.",
     "breadcrumb_home": "Strona główna",
-    "breadcrumb_markets": "Rynki"
+    "breadcrumb_markets": "Rynki",
+    "trades_title": "Moje transakcje | TradingMaster",
+    "trades_description": "Handel symulowany · tylko kredyty deweloperskie"
   }
 }
