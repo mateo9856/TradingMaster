@@ -31,7 +31,7 @@ async def test_guest_provisioning_login_and_no_password_reset(anonymous_client, 
     headers = {"Authorization": "Bearer " + login.json()["access_token"]}
     result = await anonymous_client.post("/api/v1/trading/wallet/initialize", headers=headers)
     assert result.status_code == 200
-    assert Decimal(result.json()["data"]["balance"]) == config.DEV_INITIAL_CREDITS
+    assert Decimal(result.json()["data"]["balance"]) == config.TRADING_INITIAL_CREDITS
 
 
 @pytest.mark.parametrize("email", ["demo@example.com", "DEMO@example.com"])

@@ -87,7 +87,8 @@ def test_upgrade_head_builds_the_schema_from_empty(scratch_database):
         }
 
     assert {"candles", "candles_history", "exchanges", "symbols", "users",
-            "trading_wallets", "trading_quotes", "trading_trades", "trading_credit_entries"} <= tables
+            "trading_wallets", "trading_quotes", "trading_trades", "trading_credit_entries",
+            "trading_payment_accounts", "trading_payments"} <= tables
 
 
 def test_trading_revision_can_downgrade_and_reupgrade(scratch_database):

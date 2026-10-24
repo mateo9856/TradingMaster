@@ -28,8 +28,10 @@ def key():
 @pytest.fixture
 def enable_trading(monkeypatch):
     monkeypatch.setattr(config, "APP_ENV", "development")
+    monkeypatch.setattr(config, "SIMULATED_TRADING_ENABLED", False)
     monkeypatch.setattr(config, "DEV_TRADING_ENABLED", True)
     monkeypatch.setattr(config, "DEV_INITIAL_CREDITS", Decimal("1000"))
+    monkeypatch.setattr(config, "TRADING_INITIAL_CREDITS", Decimal("1000"))
 
 
 @pytest.fixture
@@ -73,6 +75,7 @@ async def purchase(client, budget="100"):
 
 async def test_initial_funds_apply_once_and_topups_are_idempotent(trader, monkeypatch, db_session):
     monkeypatch.setattr(config, "DEV_INITIAL_CREDITS", Decimal("8000"))
+    monkeypatch.setattr(config, "TRADING_INITIAL_CREDITS", Decimal("8000"))
     result = await trader.post(PREFIX + "/wallet/initialize")
     assert result.json()["data"]["balance"] == "1000.00000000"
     headers = key()
