@@ -194,68 +194,129 @@ The API starts the Kafka producer automatically. To run only the producer separa
 python -m app.producer_runner
 ```
 
-## Development simulated trading
+## Simulated trading, payments and balances
 
-Trading is opt-in and requires `APP_ENV=development`. Apply `alembic upgrade head`
-before starting the API, then configure your local `.env`:
+Trading and payments are simulated in **every environment**. No real orders or
+payments are sent, and the UI never collects card numbers, CVV or PayPal credentials.
+The feature is disabled by default. With it disabled, deploy the application and
+run `env/bin/alembic upgrade head` before explicitly enabling it:
 
 ```dotenv
-APP_ENV=development
-DEV_TRADING_ENABLED=true
-DEV_INITIAL_CREDITS=10000
-DEV_GUEST_ENABLED=true
-DEV_GUEST_EMAIL=demo@example.com
-DEV_GUEST_PASSWORD=<choose-a-password-of-at-least-12-characters>
+SIMULATED_TRADING_ENABLED=true
+TRADING_INITIAL_CREDITS=10000
+SIMULATED_DEBIT_BALANCE=10000
+SIMULATED_CREDIT_LIMIT=10000
+SIMULATED_CREDIT_INITIAL_DEBT=0
+SIMULATED_PAYPAL_BALANCE=10000
+SIMULATED_DEBIT_TRANSACTION_LIMIT=1000
+SIMULATED_CREDIT_TRANSACTION_LIMIT=1000
+SIMULATED_PAYPAL_TRANSACTION_LIMIT=1000
 ```
 
-Sign in with the configured Guest credentials, or a registered account. Guest
-creation follows the normal password policy; it never replaces another account
-or resets an existing Guest password. Every user gets a separate wallet with
-`DEV_INITIAL_CREDITS` once, on opening trading. Changing the setting or restarting
-the API preserves existing balances. **1 credit = 1 USD**, independent of the
-chart's display currency. Use **My Trades → Add demo credits** to replenish funds.
+Migration `0007_simulated_payments` adds per-user simulator accounts and payment
+records. It preserves existing wallets, trades, and ledger history; legacy trades
+remain readable without fabricated payment records. Simulator accounts are seeded
+once on first authenticated access. Wallet starting funds use
+`TRADING_INITIAL_CREDITS`, falling back to `DEV_INITIAL_CREDITS` (default 10,000).
+Changing starting balances/debt or restarting never replenishes existing accounts.
+The credit limit and each per-transaction limit apply to subsequent payments;
+lowering the credit limit below existing debt leaves zero available credit.
+Configuration values must be finite, nonnegative, below 1e20, with at most eight
+decimals; initial credit debt cannot exceed the credit limit. Zero disables
+spending from that balance or limit. **1 credit = 1 simulated USD**, independent
+of the chart display currency.
 
-Enter a credit budget on a market page, preview the bid/ask and quantity, then
-confirm within 15 seconds. Each purchase becomes a separate trade. **My Trades**
-shows open positions, spread-adjusted profit/loss, full-trade selling and closed
-history. Buys use ask; sales and open-position valuations use bid, so an immediate
-sale normally loses the spread. Fractional crypto and shares are supported;
-quantity rounds down to eight decimals and unused credits stay in the wallet.
+Signed-in users see their simulated balance and **Add funds** in the header.
+It refreshes after purchases, deposits and sales, on window focus, and every
+30 seconds while visible. A market's Buy action opens localized `/checkout`.
+Choose TradingMaster funds, a debit or credit card, or PayPal, then preview and
+confirm a fresh quote. `/wallet` adds funds through a simulated card or PayPal.
+Both pages and **My Trades** are private and `noindex`, in all seven languages.
+
+TradingMaster purchases require sufficient wallet funds and debit their cost.
+Debit/PayPal purchases debit the selected account; credit-card purchases increase
+debt within the credit limit. External purchases enforce their transaction limit
+and leave the TradingMaster wallet unchanged, even if it has insufficient funds.
+Adding funds charges the selected external account and credits the wallet together.
+Sales always credit TradingMaster funds, regardless of how the asset was bought.
+
+Each purchase becomes a separate trade. **My Trades** shows open positions,
+spread-adjusted profit/loss, full-trade selling and closed history. Buys use ask;
+sales and valuations use bid, so an immediate sale normally loses the spread.
+Fractional crypto and shares are supported. Quantity rounds down to eight decimals;
+only the resulting cost is charged. Quotes expire within 15 seconds; expired
+quotes require refresh and another confirmation.
 
 Quotes come from public CCXT order books and Yahoo stock bid/ask, separate from
-the candle pipeline. Yahoo prices may be delayed and its bid/ask coverage varies:
-missing quotes, missing session metadata, closed stock markets and unavailable
-USD conversion disable trading. Yahoo's regular-market timestamp is a freshness
-proxy, not a dedicated bid/ask timestamp. Source timestamps and retrieval times
-remain distinct; untimestamped crypto books use retrieval time for freshness.
+the candle pipeline. Yahoo prices may be delayed and bid/ask coverage varies:
+missing quotes, session metadata, closed stock markets and unavailable USD
+conversion disable trading. Yahoo's regular-market timestamp is a freshness
+proxy, not a dedicated bid/ask timestamp. Source and retrieval times remain
+distinct. Untimestamped crypto books use retrieval time.
 `TRADING_CRYPTO_MAX_AGE_SECONDS=30` and `TRADING_STOCK_MAX_AGE_SECONDS=1200`
 control source age limits. Fiat conversion requires an ECB rate no older than
 seven days; stablecoins require a live FX order book with no peg fallback.
 
-Private API endpoints live under `/api/v1/trading`: `POST /wallet/initialize`,
-`GET /wallet`, `POST /wallet/demo-top-ups`, `POST /quotes`, `POST /trades`,
-`GET /trades?status=open|closed&limit=10&offset=0`, and `POST /trades/{id}/sell`.
-`GET /capabilities` is public. All other routes require an active user; cookie
-writes also require `X-Requested-With`. Executions and top-ups require a UUID
-`Idempotency-Key` header; reuse it only when retrying the identical request.
+Private API endpoints under `/api/v1/trading`:
+
+- `POST /wallet/initialize`: initialize once; repeated calls preserve funds.
+- `GET /wallet`: read the signed-in user's wallet.
+- `GET /payment-accounts`: read that user's debit, credit and PayPal balances,
+  available funds/debt and current transaction limits; initializes accounts if needed.
+- `POST /wallet/top-ups`: fund through card or PayPal.
+- `POST /quotes`, `POST /trades`, `POST /trades/{id}/sell`.
+- `GET /trades?status=open|closed&limit=10&offset=0`.
+
+`GET /capabilities` is public. Other routes require an active user; cookie writes
+also require `X-Requested-With`. Executions and top-ups require a UUID
+`Idempotency-Key`. Reuse it for retries of the same request, including the same
+payment selection. Different payment details with the same key return 409.
+
+For a purchase, send to `POST /quotes`:
 
 ```json
 {"side": "buy", "exchange": "kraken", "ticker": "BTC/USD", "budget": "100"}
 ```
 
-Send this to `POST /quotes`, then its returned `id` as `{"quote_id": "…"}` to
-`POST /trades`. To sell, request `{"side": "sell", "trade_id": "…"}` and submit
-the new quote ID to the trade's `/sell` endpoint. Amounts are decimal strings.
-Expired previews require a new confirmation. Trades, balances, ledger entries,
-and quote consumption commit atomically; duplicate submissions cannot double
-spend or sell the same trade twice.
+Then submit its returned quote ID to `POST /trades`:
 
-Card, PayPal and bank transfer are **TODO / Coming soon** placeholders. No real
-payments or exchange orders are submitted. Fees, partial sales, order-book depth
-and slippage are deferred. Development trading and Guest seeding settings cause
-startup to fail outside development. Apply migrations with the feature disabled
-first; enable it explicitly after deployment. Downgrading migration `0006` removes
-the simulated trading records, so preserve them before a rollback if needed.
+```json
+{"quote_id": "<quote UUID>", "payment_method": "card", "card_type": "debit"}
+```
+
+`payment_method` accepts `credits` (the backwards-compatible default), `card`,
+or `paypal`. Card payments require `card_type: debit|credit`; other methods reject
+`card_type`. To add funds, send to `POST /wallet/top-ups`:
+
+```json
+{"amount": "100", "payment_method": "paypal"}
+```
+
+To sell, request `{"side": "sell", "trade_id": "<trade UUID>"}` and submit
+`{"quote_id": "<quote UUID>"}` to that trade's `/sell` endpoint. Amounts are decimal
+strings. Payment authorization, external debits/debt, wallet changes, trades,
+ledger/payment records and quote consumption commit atomically. Declines and
+persistence failures leave no partial movement. Wallet locks serialize spending
+across API workers. Duplicate retries cannot charge, buy or sell twice.
+
+`DEV_TRADING_ENABLED=true` remains a development-only compatibility switch.
+`POST /wallet/demo-top-ups` is an unrestricted legacy endpoint available only in
+development; the UI uses method-aware funding. Optional Guest provisioning also
+remains development-only and uses the normal password policy:
+
+```dotenv
+APP_ENV=development
+DEV_GUEST_ENABLED=true
+DEV_GUEST_EMAIL=demo@example.com
+DEV_GUEST_PASSWORD=<choose-a-password-of-at-least-12-characters>
+```
+
+Guest provisioning requires either trading switch and never replaces an account
+or resets a Guest password. Production still requires a strong `AUTH_SECRET`,
+HTTPS cookies and a safe CORS configuration. Bank transfers, fees, partial sales,
+order-book depth and slippage are deferred. Downgrading `0007` removes simulator
+accounts and payment records; preserve them before rollback. Downgrading `0006`
+also removes wallets, trades and ledger history.
 
 ## Auth
 
