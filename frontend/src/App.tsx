@@ -10,6 +10,8 @@ import { NotFoundPage } from "@/pages/NotFoundPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { SystemPage } from "@/pages/SystemPage";
 import { TradesPage } from "@/pages/TradesPage";
+import { CheckoutPage } from "@/pages/CheckoutPage";
+import { WalletPage } from "@/pages/WalletPage";
 
 /**
  * Every route exists once per language: unprefixed for English, /pl/…, /de/…
@@ -29,6 +31,8 @@ export function App() {
           <Route path="login" element={<LoginPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="trades" element={<TradesPage />} />
+          <Route path="checkout" element={<CheckoutPage />} />
+          <Route path="wallet" element={<WalletPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>

@@ -35,5 +35,25 @@ class ExecuteRequest(TradingInput):
     quote_id: UUID
 
 
+class PaymentSelection(TradingInput):
+    payment_method: Literal["credits", "card", "paypal"] = "credits"
+    card_type: Literal["debit", "credit"] | None = None
+
+    @model_validator(mode="after")
+    def valid_payment(self):
+        if (self.payment_method == "card") != (self.card_type is not None):
+            raise ValueError("card_type is required only for card payments")
+        return self
+
+
+class PurchaseRequest(PaymentSelection):
+    quote_id: UUID
+
+
 class TopUpRequest(TradingInput):
     amount: CreditAmount
+
+
+class FundingRequest(PaymentSelection):
+    amount: CreditAmount
+    payment_method: Literal["card", "paypal"]

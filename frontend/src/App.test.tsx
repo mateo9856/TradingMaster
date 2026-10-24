@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { HttpResponse, http } from "msw";
 import { useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +8,8 @@ import { App } from "./App";
 import i18n, { LANGUAGE_STORAGE_KEY } from "@/lib/i18n";
 import { installFakeWebSocket } from "@/test/fake-websocket";
 import { renderApp } from "@/test/render";
+import { envelope, signedIn } from "@/test/handlers";
+import { server } from "@/test/server";
 
 vi.mock("@/components/CandleChart", () => ({ CandleChart: () => <div data-testid="candle-chart" /> }));
 
@@ -35,6 +38,40 @@ afterEach(async () => {
 });
 
 describe("market pages", () => {
+  it.each([
+    ["/markets/bitcoin-btc", "BTC/USD", "kraken"],
+    ["/markets/orlen-pkn-wa", "PKN.WA/USD", "yahoo"],
+  ])("offers buying beside the chart on %s and opens checkout for the selected exchange", async (route, ticker, exchange) => {
+    server.use(signedIn(),
+      http.get("/api/v1/trading/capabilities", () => HttpResponse.json(envelope({ enabled: true, simulated: true }))),
+      http.get("/api/v1/trading/wallet", () => HttpResponse.json(envelope({ balance: "10000.00000000", currency: "credits" }))),
+    );
+    renderAt(route);
+    await screen.findByTestId("candle-chart", {}, { timeout: 5000 });
+    await userEvent.selectOptions(screen.getByLabelText("Exchange"), exchange);
+    const chart = screen.getByTestId("candle-chart").parentElement!.parentElement!;
+    const buy = within(chart).getByRole("link", { name: "Buy assets" });
+    expect(screen.getAllByRole("link", { name: "Buy assets" })).toHaveLength(1);
+    const target = new URL(buy.getAttribute("href")!, window.location.origin);
+    expect(target.searchParams.get("ticker")).toBe(ticker);
+    expect(target.searchParams.get("exchange")).toBe(exchange);
+    expect(target.searchParams.get("budget")).toBe("100");
+    await userEvent.click(buy);
+    expect(await screen.findByRole("heading", { name: "Checkout" })).toBeInTheDocument();
+    expect(where()).toBe("/checkout");
+  });
+
+  it("updates the Buy action when another market is selected", async () => {
+    server.use(signedIn(),
+      http.get("/api/v1/trading/capabilities", () => HttpResponse.json(envelope({ enabled: true, simulated: true }))),
+      http.get("/api/v1/trading/wallet", () => HttpResponse.json(envelope({ balance: "10000.00000000", currency: "credits" }))),
+    );
+    renderAt("/markets/bitcoin-btc");
+    await screen.findByRole("link", { name: "Buy assets" });
+    await userEvent.selectOptions(screen.getByLabelText("Market"), "PKN.WA/USD");
+    await waitFor(() => expect(screen.getByRole("link", { name: "Buy assets" })).toHaveAttribute("href", "/checkout?ticker=PKN.WA%2FUSD&exchange=yahoo&budget=100"));
+  });
+
   it("say what the instrument is, with one h1", async () => {
     renderAt("/markets/bitcoin-btc");
 

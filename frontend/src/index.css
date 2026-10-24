@@ -90,3 +90,103 @@
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
+
+/* Checkout and funding share a contained fintech palette. */
+.payment-shell { position: relative; max-width: 1120px; margin: 0 auto; padding: 8px 0 24px; }
+.payment-back { display: inline-block; color: var(--muted-foreground); font-size: 12px; transition: color .15s; }
+.payment-back:hover { color: var(--foreground); }
+.payment-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin: 32px 0; }
+.payment-eyebrow { display: inline-flex; align-items: center; gap: 8px; color: var(--primary); font-size: 10px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; }
+.payment-eyebrow > span { width: 6px; height: 6px; border-radius: 50%; background: #20c9b1; box-shadow: 0 0 14px #20c9b155; }
+.payment-heading-mark { position: relative; color: color-mix(in oklab, var(--primary) 16%, transparent); font-size: 84px; line-height: 1; font-weight: 800; letter-spacing: -.08em; user-select: none; }
+.payment-heading-mark > span { position: absolute; top: -12px; right: -4px; font-size: 36px; color: color-mix(in oklab, var(--primary) 55%, transparent); }
+.payment-steps { display: flex; gap: 0; padding: 0; margin-bottom: 28px; list-style: none; }
+.payment-steps li { display: flex; align-items: center; flex: 1; gap: 10px; color: var(--muted-foreground); font-size: 12px; }
+.payment-steps li:not(:last-child)::after { content: ''; flex: 1; height: 1px; margin: 0 18px 0 6px; background: var(--border); }
+.payment-steps li:last-child { flex: 0 1 auto; }
+.payment-step-number { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid var(--border); border-radius: 50%; font-size: 10px; font-weight: 600; }
+.payment-steps .is-current { color: var(--foreground); font-weight: 600; }
+.payment-steps .is-current .payment-step-number { color: #fff; border-color: #5c73f1; background: linear-gradient(135deg, #4769df, #7557c8); box-shadow: 0 3px 14px #5068e333; }
+.payment-steps .is-done .payment-step-number { background: color-mix(in oklab, var(--success) 12%, transparent); color: var(--success); border-color: color-mix(in oklab, var(--success) 30%, transparent); }
+.payment-columns { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); align-items: start; gap: 24px; }
+.payment-panel { min-width: 0; padding: 32px; border: 1px solid var(--border); border-radius: 22px; background: linear-gradient(145deg, color-mix(in oklab, var(--card) 97%, #6b5ee6), var(--card) 65%); box-shadow: 0 16px 60px #00000008; }
+.payment-panel-heading { display: flex; gap: 13px; align-items: center; padding-bottom: 24px; margin-bottom: 26px; border-bottom: 1px solid var(--border); }
+.payment-section-number { display: grid; flex-shrink: 0; place-items: center; width: 39px; height: 39px; border-radius: 12px; background: color-mix(in oklab, var(--primary) 12%, transparent); color: var(--primary); font-size: 12px; font-weight: 600; }
+.payment-amount-input { position: relative; display: flex; align-items: center; gap: 12px; margin-top: 6px; padding: 0 16px; border: 1px solid var(--input); border-radius: 15px; background: var(--background); }
+.payment-amount-input:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 15%, transparent); }
+.payment-amount-input > span:first-child { color: var(--muted-foreground); font-size: 26px; }
+.payment-amount-input input { min-width: 0; height: 80px; padding: 0; border: 0; border-radius: 0; background: transparent; font-size: 38px; font-weight: 600; letter-spacing: -.045em; font-variant-numeric: tabular-nums; outline: none; box-shadow: none; -moz-appearance: textfield; }
+.payment-amount-input input::-webkit-inner-spin-button, .payment-amount-input input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.payment-amount-currency { flex-shrink: 0; color: var(--muted-foreground); font-size: 11px; font-weight: 600; }
+.payment-preset { padding: 7px 13px; border: 1px solid var(--border); border-radius: 8px; color: var(--muted-foreground); font-size: 11px; font-variant-numeric: tabular-nums; cursor: pointer; transition: border-color .15s, color .15s; }
+.payment-preset:hover { color: var(--foreground); border-color: var(--primary); }
+.payment-preset:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.payment-preset:disabled { opacity: .5; cursor: default; }
+.payment-methods { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.payment-methods-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.payment-option { position: relative; min-width: 0; display: block; cursor: pointer; padding: 18px 12px 16px; border: 1px solid var(--border); border-radius: 15px; background: color-mix(in oklab, var(--background) 50%, transparent); transition: border-color .15s, background .15s, box-shadow .15s; }
+.payment-option:hover { border-color: color-mix(in oklab, var(--primary) 60%, var(--border)); }
+.payment-option.is-selected { border-color: var(--primary); background: linear-gradient(145deg, color-mix(in oklab, var(--primary) 13%, var(--card)), color-mix(in oklab, var(--card) 96%, #8369e7)); box-shadow: 0 0 0 1px color-mix(in oklab, var(--primary) 35%, transparent); }
+.payment-option:focus-within, .payment-segment:focus-within { outline: 2px solid var(--ring); outline-offset: 3px; }
+.payment-option.is-disabled { cursor: default; opacity: .55; }
+.payment-option-check { position: absolute; right: 10px; top: 10px; display: grid; place-items: center; height: 15px; width: 15px; border: 1px solid var(--border); border-radius: 50%; font-size: 10px; }
+.is-selected .payment-option-check { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.payment-brand { display: inline-flex; position: relative; align-items: center; justify-content: center; height: 40px; width: 44px; flex-shrink: 0; border-radius: 11px; }
+.payment-brand-wallet { background: linear-gradient(145deg, #4067e8, #7c50d8); color: white; font-size: 15px; font-weight: 800; letter-spacing: -.08em; }
+.payment-brand-dot { position: absolute; height: 4px; width: 4px; right: 7px; bottom: 9px; border-radius: 50%; background: #58efca; }
+.payment-brand-card { background: color-mix(in oklab, var(--primary) 12%, var(--card)); color: var(--primary); }
+.payment-brand-paypal { background: #fff; border: 1px solid #dce3eb; }
+.payment-segments { display: flex; gap: 4px; border: 1px solid var(--border); padding: 4px; border-radius: 11px; background: var(--background); }
+.payment-segment { flex: 1; padding: 10px; border-radius: 7px; color: var(--muted-foreground); font-size: 12px; text-align: center; cursor: pointer; }
+.payment-segment.is-selected { background: color-mix(in oklab, var(--primary) 14%, var(--card)); color: var(--foreground); font-weight: 600; box-shadow: 0 2px 6px #00000009; }
+.payment-account { padding: 15px 17px; border-radius: 12px; border: 1px solid color-mix(in oklab, var(--primary) 18%, var(--border)); background: color-mix(in oklab, var(--primary) 5%, transparent); font-size: 12px; line-height: 1.9; font-variant-numeric: tabular-nums; }
+.payment-primary, .payment-primary-link { height: auto; min-height: 48px; gap: 12px; padding: 12px 20px; border-radius: 12px; background: linear-gradient(105deg, #355fda, #6551ce 65%, #7e49bf); color: white; box-shadow: 0 5px 18px #5060d32a; font-size: 13px; font-weight: 600; }
+.payment-primary-link { display: flex; align-items: center; justify-content: center; transition: opacity .15s; }
+.payment-primary:hover, .payment-primary-link:hover { opacity: .9; }
+.payment-primary-link:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.payment-summary { min-width: 0; overflow: hidden; position: sticky; top: 114px; border: 1px solid var(--border); border-radius: 22px; background: var(--card); box-shadow: 0 16px 60px #00000008; }
+.payment-summary-hero { position: relative; overflow: hidden; padding: 30px; color: #fff; background: radial-gradient(ellipse at 100% 0%, #178cbd88, transparent 70%), linear-gradient(130deg, #21466e, #273782 52%, #624392); }
+.payment-summary-hero::after { content: ''; pointer-events: none; position: absolute; right: -70px; top: -80px; width: 230px; height: 230px; border: 1px solid #ffffff13; border-radius: 50%; box-shadow: 0 0 0 35px #ffffff06, 0 0 0 70px #ffffff04; }
+.payment-asset-mark { display: grid; place-items: center; flex-shrink: 0; width: 47px; height: 47px; border: 1px solid #ffffff30; border-radius: 14px; background: #ffffff16; font-size: 14px; font-weight: 700; letter-spacing: -.03em; }
+.payment-summary-amount { display: flex; align-items: baseline; flex-wrap: wrap; gap: 9px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+.payment-summary-amount > span:first-child { min-width: 0; overflow-wrap: anywhere; font-size: clamp(30px, 3.6vw, 46px); line-height: 1.2; font-weight: 600; letter-spacing: -.055em; }
+.payment-summary-amount > span:last-child { font-size: 12px; opacity: .7; }
+.payment-summary-body { padding: 25px 30px; }
+.payment-summary-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.payment-summary-row > span:first-child { color: var(--muted-foreground); }
+.payment-summary-row .payment-brand { height: 25px; width: 28px; border-radius: 6px; font-size: 9px; }
+.payment-summary-row .payment-brand svg { width: 22px; height: 18px; }
+.payment-summary-row .payment-brand img { width: 14px; height: 18px; }
+.payment-summary-row .payment-brand-dot { display: none; }
+.payment-summary-balance { margin-top: 25px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 11px; line-height: 1.8; font-variant-numeric: tabular-nums; }
+.payment-quote dt { color: var(--muted-foreground); }
+.payment-quote dd { text-align: right; overflow-wrap: anywhere; }
+.payment-disclaimer { max-width: 650px; margin: 26px auto 0; font-size: 11px; line-height: 1.8; text-align: center; color: var(--muted-foreground); }
+.payment-completion { display: flex; flex-direction: column; align-items: center; padding: 24px 8px; text-align: center; }
+.payment-completion-mark { display: grid; place-items: center; height: 70px; width: 70px; border-radius: 22px; border: 1px solid color-mix(in oklab, var(--success) 30%, transparent); background: linear-gradient(135deg, color-mix(in oklab, var(--success) 18%, transparent), color-mix(in oklab, var(--primary) 12%, transparent)); color: var(--success); font-size: 30px; box-shadow: 0 0 40px color-mix(in oklab, var(--success) 8%, transparent); }
+.payment-deposit-review { padding: 22px; border: 1px solid var(--border); border-radius: 15px; background: var(--background); }
+@media (max-width: 800px) {
+  .payment-columns { grid-template-columns: minmax(0, 1fr); gap: 18px; }
+  .payment-summary { position: static; grid-row: 1; }
+  .payment-summary-hero { padding: 23px; }
+  .payment-summary-body { padding: 20px 23px; }
+  .payment-summary-hero .mt-9 { margin-top: 23px; }
+  .payment-summary-balance { margin-top: 18px; padding-top: 16px; }
+  .payment-panel { padding: 24px; }
+  .payment-heading-mark { font-size: 60px; }
+}
+@media (max-width: 480px) {
+  .payment-heading { margin: 25px 0; }
+  .payment-heading-mark { display: none; }
+  .payment-panel { padding: 20px 16px; border-radius: 18px; }
+  .payment-methods { grid-template-columns: 1fr; }
+  .payment-option { display: grid; grid-template-columns: 44px 1fr; column-gap: 13px; padding: 14px; }
+  .payment-option > .payment-brand { grid-row: span 2; }
+  .payment-option > .mt-3 { margin-top: 0; padding-right: 15px; align-self: end; }
+  .payment-option > .mt-1 { margin-top: 2px; }
+  .payment-steps li { gap: 7px; font-size: 11px; }
+  .payment-steps li:not(:last-child)::after { margin-right: 9px; margin-left: 0; }
+  .payment-step-number { height: 26px; width: 26px; }
+  .payment-quote dl { grid-template-columns: 1fr; gap: 5px; }
+  .payment-quote dd { text-align: left; margin-bottom: 8px; }
+}

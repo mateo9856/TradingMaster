@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { HttpResponse, http } from "msw";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { PurchasePanel } from "@/components/PurchasePanel";
+import { CheckoutForm } from "./CheckoutPage";
 import { TradeConfirmation } from "@/components/TradeConfirmation";
 import type { Trade, TradingQuote } from "@/lib/trading";
 import { envelope, signedIn } from "@/test/handlers";
@@ -54,21 +54,21 @@ describe("buying with credits", () => {
       expect(request.headers.get("X-Requested-With")).toBeTruthy();
       return HttpResponse.json(envelope({ trade, wallet: { balance: "900.00000000" } }));
     }));
-    renderApp(<PurchasePanel ticker="BTC/USD" exchange="kraken" />);
-    await screen.findByText(/1000.00000000/);
+    renderApp(<CheckoutForm ticker="BTC/USD" exchange="kraken" />);
+    await screen.findByText("Simulated TradingMaster balance: 1000.00 credits");
     await userEvent.click(screen.getByRole("button", { name: "Preview purchase" }));
     expect(await screen.findByText("Bid (sell price)")).toBeInTheDocument();
     expect(screen.getByText("Ask (buy price)")).toBeInTheDocument();
-    expect(screen.getByText("BTC/USD · Kraken")).toBeInTheDocument();
+    expect(screen.getAllByText("BTC/USD · Kraken")).toHaveLength(2);
     await userEvent.click(screen.getByRole("button", { name: "Confirm purchase" }));
     expect(await screen.findByText("Purchase completed.")).toBeInTheDocument();
-    expect(executed).toEqual({ quote_id: "quote-1" });
+    expect(executed).toEqual({ quote_id: "quote-1", payment_method: "credits" });
   });
 
   it("shows provider errors", async () => {
     server.use(http.post(prefix + "/quotes", () => HttpResponse.json({ detail: "Provider quote is stale" }, { status: 503 })));
-    renderApp(<PurchasePanel ticker="BTC/USD" exchange="kraken" />);
-    await screen.findByText(/1000.00000000/);
+    renderApp(<CheckoutForm ticker="BTC/USD" exchange="kraken" />);
+    await screen.findByText("Simulated TradingMaster balance: 1000.00 credits");
     await userEvent.click(screen.getByRole("button", { name: "Preview purchase" }));
     expect(await screen.findByText("Provider quote is stale")).toBeInTheDocument();
   });
@@ -79,8 +79,8 @@ describe("buying with credits", () => {
       keys.push(request.headers.get("Idempotency-Key")!);
       return keys.length === 1 ? HttpResponse.error() : HttpResponse.json(envelope({ trade }));
     }));
-    renderApp(<PurchasePanel ticker="BTC/USD" exchange="kraken" />);
-    await screen.findByText(/1000.00000000/);
+    renderApp(<CheckoutForm ticker="BTC/USD" exchange="kraken" />);
+    await screen.findByText("Simulated TradingMaster balance: 1000.00 credits");
     await userEvent.click(screen.getByRole("button", { name: "Preview purchase" }));
     await userEvent.click(await screen.findByRole("button", { name: "Confirm purchase" }));
     await screen.findByText("Failed to fetch");
@@ -99,18 +99,16 @@ describe("buying with credits", () => {
 });
 
 describe("My Trades", () => {
-  it("shows spread-adjusted losses, confirms a full sale, and keeps payments disabled", async () => {
+  it("shows spread-adjusted losses, confirms a full sale, and links to funding", async () => {
     let sold = false;
     server.use(http.post(prefix + "/trades/:id/sell", ({ request }) => {
       expect(request.headers.get("Idempotency-Key")).toBeTruthy(); sold = true;
       return HttpResponse.json(envelope({ trade: { ...trade, status: "closed" } }));
     }));
     renderApp(<TradesPage />);
-    expect(await screen.findByText("Unrealized profit / loss: -1.00000000 credits")).toBeInTheDocument();
+    expect(await screen.findByText("Unrealized profit / loss: -1.00 credits")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "BTC/USD · Kraken" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Payment card/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /PayPal/ })).toBeDisabled();
-    expect(screen.getByRole("button", { name: /Bank transfer/ })).toBeDisabled();
+    expect(screen.getByRole("link", { name: "Add funds" })).toHaveAttribute("href", "/wallet");
     await userEvent.click(screen.getByRole("button", { name: "Sell entire trade" }));
     await userEvent.click(await screen.findByRole("button", { name: "Confirm full sale" }));
     expect(await screen.findByText("Trade sold.")).toBeInTheDocument();
@@ -118,18 +116,11 @@ describe("My Trades", () => {
     expect(document.head.querySelector('meta[name="robots"]')?.getAttribute("content")).toBe("noindex, nofollow");
   });
 
-  it("adds demo credits", async () => {
-    let payload: unknown;
-    server.use(http.post(prefix + "/wallet/demo-top-ups", async ({ request }) => {
-      payload = await request.json();
-      expect(request.headers.get("Idempotency-Key")).toBeTruthy();
-      return HttpResponse.json(envelope({ balance: "2000.00000000" }));
-    }));
+  it("replaces unrestricted demo funding with the wallet flow", async () => {
     renderApp(<TradesPage />);
-    await screen.findByText(/1000.00000000 credits/);
-    await userEvent.click(screen.getByRole("button", { name: "Add demo credits" }));
-    expect(await screen.findByText("Demo credits added.")).toBeInTheDocument();
-    expect(payload).toEqual({ amount: "1000" });
+    await screen.findByText(/1000.00 credits/);
+    expect(screen.getByRole("link", { name: "Add funds" })).toHaveAttribute("href", "/wallet");
+    expect(screen.queryByRole("button", { name: "Add demo credits" })).not.toBeInTheDocument();
   });
 
   it("shows missing valuations as unknown and disables selling", async () => {
@@ -143,7 +134,7 @@ describe("My Trades", () => {
   it("hides the feature when development trading is disabled", async () => {
     server.use(http.get(prefix + "/capabilities", () => HttpResponse.json(envelope({ enabled: false }))));
     renderApp(<TradesPage />);
-    expect(await screen.findByText("Trading is available only in development when enabled.")).toBeInTheDocument();
+    expect(await screen.findByText("Simulated trading is disabled.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Add demo credits" })).not.toBeInTheDocument();
   });
 });

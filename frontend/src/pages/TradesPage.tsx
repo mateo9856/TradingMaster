@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
@@ -8,11 +8,10 @@ import { TradeConfirmation } from "@/components/TradeConfirmation";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
-import { Field, Input } from "@/components/ui/field";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { formatExchange } from "@/lib/format";
-import { useTradingCapabilities, useTradingWallet } from "@/lib/trading";
+import { formatCash, formatExchange } from "@/lib/format";
+import { paymentError, useTradingCapabilities, useTradingWallet } from "@/lib/trading";
 import type { Trade, TradingQuote } from "@/lib/trading";
 
 export function TradesPage() {
@@ -39,8 +38,6 @@ function TradingAccount({ userId }: { userId: string }) {
   const wallet = useTradingWallet(true);
   const [status, setStatus] = useState<"open" | "closed">("open");
   const [offset, setOffset] = useState(0);
-  const [amount, setAmount] = useState("1000");
-  const topUpKey = useRef<string | null>(null);
   const [preview, setPreview] = useState<{ quote: TradingQuote; key: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +51,7 @@ function TradingAccount({ userId }: { userId: string }) {
   const refresh = () => client.invalidateQueries({ queryKey: ["trading", userId] });
   const act = async (work: () => Promise<void>) => {
     setBusy(true); setError(null); setMessage(null);
-    try { await work(); } catch (caught) { setError((caught as Error).message); }
+    try { await work(); } catch (caught) { setError(paymentError(caught, t)); }
     finally { setBusy(false); }
   };
   const prepareSell = (trade: Trade) => act(async () => {
@@ -66,27 +63,14 @@ function TradingAccount({ userId }: { userId: string }) {
     await api.sellTrade(preview.quote.trade_id, preview.quote.id, preview.key);
     setPreview(null); setMessage(t("trading.sold")); await refresh();
   });
-  const topUp = () => act(async () => {
-    topUpKey.current ??= crypto.randomUUID();
-    await api.demoTopUp(amount, topUpKey.current);
-    topUpKey.current = null; setMessage(t("trading.funded")); await refresh();
-  });
   return (
     <>
       <Card>
         <CardHeader title={t("trading.balance")} description={t("trading.creditHint")} />
         <CardBody className="flex flex-col gap-3">
-          <p className="text-xl tabular-nums">{wallet.data?.balance ?? "…"} {t("trading.credits")}</p>
+          <p className="text-xl tabular-nums">{wallet.data ? formatCash(wallet.data.balance) : "…"} {t("trading.credits")}</p>
           {wallet.error && <Alert tone="danger">{wallet.error.message}</Alert>}
-          <form className="flex max-w-md flex-col gap-3" onSubmit={(event) => { event.preventDefault(); void topUp(); }}>
-            <Field label={t("trading.topUpAmount")}>
-              {(id) => <Input id={id} required type="number" min="0.00000001" max="1000000000000" step="0.00000001" value={amount} disabled={busy} onChange={(event) => { setAmount(event.target.value); topUpKey.current = null; }} />}
-            </Field>
-            <Button disabled={busy || !wallet.data}>{t("trading.addCredits")}</Button>
-          </form>
-          <div className="flex flex-wrap gap-2">
-            {["card", "paypal", "bank"].map((method) => <Button key={method} variant="secondary" disabled>{t(`trading.${method}`)} · {t("trading.comingSoon")}</Button>)}
-          </div>
+          <LocalizedLink to="/wallet" className="underline">{t("payments.addFunds")}</LocalizedLink>
         </CardBody>
       </Card>
       {error && <Alert tone="danger">{error}</Alert>}
@@ -106,9 +90,9 @@ function TradingAccount({ userId }: { userId: string }) {
                 <CardHeader title={`${trade.ticker} · ${formatExchange(trade.exchange)}`} description={new Date(trade.opened_at).toLocaleString()} />
                 <CardBody className="flex flex-col gap-2 text-sm tabular-nums">
                   <p>{t("trading.quantity")}: {trade.quantity}</p>
-                  <p>{t("trading.cost")}: {trade.cost} {t("trading.credits")}</p>
-                  <p>{t("trading.sellValue")}: {(trade.status === "closed" ? trade.proceeds : trade.valuation?.sell_value) ?? "—"} {t("trading.credits")}</p>
-                  <p className={pnl && Number(pnl) < 0 ? "text-red-600" : "text-green-600"}>{t(trade.status === "closed" ? "trading.realizedPnl" : "trading.pnl")}: {pnl ?? "—"} {t("trading.credits")}</p>
+                  <p>{t("trading.cost")}: {formatCash(trade.cost)} {t("trading.credits")}</p>
+                  <p>{t("trading.sellValue")}: {formatCash(trade.status === "closed" ? trade.proceeds : trade.valuation?.sell_value)} {t("trading.credits")}</p>
+                  <p className={pnl && Number(pnl) < 0 ? "text-red-600" : "text-green-600"}>{t(trade.status === "closed" ? "trading.realizedPnl" : "trading.pnl")}: {formatCash(pnl)} {t("trading.credits")}</p>
                   {trade.valuation && <>
                     <p>{t("trading.spread")}: {trade.valuation.spread} USD ({trade.valuation.spread_percent}%)</p>
                     <p>{t("trading.quoteTime")} {trade.valuation.source_at ?? trade.valuation.received_at}</p>

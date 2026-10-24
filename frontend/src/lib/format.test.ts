@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   changeDirection,
   formatChange,
+  formatCash,
   formatExchange,
   formatPrice,
   formatTimestamp,
@@ -12,6 +13,20 @@ import {
   toNumber,
   todayUtc,
 } from "./format";
+
+describe("cash display", () => {
+  it.each([
+    ["10000.00000000", "10000.00"], ["42", "42.00"], ["42.5", "42.50"],
+    ["1.00500000", "1.01"], ["99.99999999", "100.00"], ["-12.34500000", "-12.35"],
+    ["0", "0.00"], ["-0.00000000", "0.00"], ["0.00000001", "<0.01"], ["-0.00000001", "-<0.01"],
+    ["0.00999999", "<0.01"], ["0.01000000", "0.01"], ["1e3", "1000.00"], ["1e-8", "<0.01"],
+    ["99999999999999999999.99499999", "99999999999999999999.99"],
+    ["99999999999999999999.99500000", "100000000000000000000.00"],
+    [undefined, "—"], [null, "—"], ["", "—"], ["NaN", "—"], ["Infinity", "—"],
+  ])("formats %s as %s without changing stored precision", (value, expected) => {
+    expect(formatCash(value)).toBe(expected);
+  });
+});
 
 describe("exchange display names", () => {
   it.each([

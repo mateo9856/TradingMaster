@@ -94,7 +94,18 @@ export const USER: User = {
   is_verified: false,
 };
 
+export const PAYMENT_ACCOUNTS = {
+  simulated: true, currency: "USD",
+  accounts: {
+    debit: { available: "10000.00000000", balance: "10000.00000000", debt: null, credit_limit: null, transaction_limit: "1000.00000000" },
+    credit: { available: "10000.00000000", balance: null, debt: "0.00000000", credit_limit: "10000.00000000", transaction_limit: "1000.00000000" },
+    paypal: { available: "10000.00000000", balance: "10000.00000000", debt: null, credit_limit: null, transaction_limit: "1000.00000000" },
+  },
+};
+
 export const handlers = [
+  http.get("/api/v1/trading/wallet", () => HttpResponse.json({ detail: "Wallet not initialized" }, { status: 404 })),
+  http.get("/api/v1/trading/payment-accounts", () => HttpResponse.json(envelope(PAYMENT_ACCOUNTS))),
   http.get("/api/v1/trading/capabilities", () => HttpResponse.json(envelope({ enabled: false, simulated: true, payment_methods: {} }))),
   http.get("/api/v1/market/markets", () => HttpResponse.json(envelope(MARKETS))),
   http.get("/api/v1/currencies", () => HttpResponse.json(envelope(CURRENCIES))),

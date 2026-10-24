@@ -14,9 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app import config
 from app.helpers.markets import unified_ticker
 from app.helpers.time import utc_now_naive
-from app.models.trading import CreditEntry, Trade, TradingQuote, Wallet
+from app.models.trading import CreditEntry, Payment, Trade, TradingQuote, Wallet
 from app.schemas.trading import QuoteRequest
 from .quotes import PriceQuote, QuoteUnavailable, quote_service, resolve_source
+from .payments import charge, seed_accounts
 
 logger = logging.getLogger(__name__)
 QUANTUM = Decimal("0.00000001")
@@ -70,7 +71,7 @@ async def initialize_wallet(db: AsyncSession, user_id) -> dict:
     # INSERT .. ON CONFLICT is atomic across API workers and repeat requests.
     insert = sqlite_insert if db.bind.dialect.name == "sqlite" else pg_insert
     created = await db.scalar(
-        insert(Wallet).values(user_id=user_id, balance=config.DEV_INITIAL_CREDITS,
+        insert(Wallet).values(user_id=user_id, balance=config.TRADING_INITIAL_CREDITS,
                               version=0, created_at=utc_now_naive())
         .on_conflict_do_nothing(index_elements=[Wallet.user_id]).returning(Wallet.user_id)
     )
@@ -80,6 +81,7 @@ async def initialize_wallet(db: AsyncSession, user_id) -> dict:
         db.add(CreditEntry(user_id=user_id, action="initial", amount=wallet.balance,
                            balance_after=wallet.balance, request_key="initial", fingerprint="initial",
                            result=result))
+    await seed_accounts(db, user_id)
     await db.commit()
     return result
 
@@ -160,9 +162,14 @@ async def replay(db: AsyncSession, user_id, key: str, fingerprint: str) -> dict 
 
 
 async def execute(db: AsyncSession, user_id, key: str, quote_id: str,
-                  trade_id: str | None = None) -> dict:
+                  trade_id: str | None = None, payment_method: str = "credits",
+                  card_type: str | None = None) -> dict:
     action = "sell" if trade_id is not None else "buy"
-    fingerprint = hashlib.sha256(f"{action}:{quote_id}:{trade_id}".encode()).hexdigest()
+    identity = f"{action}:{quote_id}:{trade_id}"
+    # Preserve fingerprints for old credit purchases and sales.
+    if payment_method != "credits":
+        identity += f":{payment_method}:{card_type}"
+    fingerprint = hashlib.sha256(identity.encode()).hexdigest()
     wallet = await lock_wallet(db, user_id)
     previous = await replay(db, user_id, key, fingerprint)
     if previous is not None:
@@ -179,14 +186,17 @@ async def execute(db: AsyncSession, user_id, key: str, quote_id: str,
         await resolve_source(db, quote.exchange, quote.ticker, quote.source_ticker)
     except QuoteUnavailable as exc:
         raise HTTPException(409, str(exc)) from exc
+    account = None
     if action == "buy":
-        if wallet.balance < quote.amount:
+        if payment_method == "credits" and wallet.balance < quote.amount:
             raise HTTPException(409, "Insufficient credits")
+        if payment_method != "credits":
+            account = await charge(db, user_id, payment_method, card_type, quote.amount)
         trade = Trade(user_id=user_id, exchange=quote.exchange, ticker=quote.ticker,
                       source_ticker=quote.source_ticker, quantity=quote.quantity,
                       buy_price=quote.ask, cost=quote.amount, buy_quote_id=quote.id)
         db.add(trade)
-        delta = -quote.amount
+        delta = -quote.amount if payment_method == "credits" else Decimal(0)
     else:
         trade = await find_trade(db, user_id, trade_id)
         if trade.closed_at or trade.quantity != quote.quantity:
@@ -200,8 +210,14 @@ async def execute(db: AsyncSession, user_id, key: str, quote_id: str,
     quote.consumed_at = utc_now_naive()
     await db.flush()
     result = {"wallet": wallet_data(wallet), "trade": trade_data(trade)}
-    db.add(CreditEntry(user_id=user_id, action=action, amount=delta, balance_after=wallet.balance,
-                      request_key=key, fingerprint=fingerprint, result=result))
+    entry = CreditEntry(user_id=user_id, action=action, amount=delta, balance_after=wallet.balance,
+                        request_key=key, fingerprint=fingerprint, result=result)
+    db.add(entry)
+    if action == "buy":
+        await db.flush()
+        db.add(Payment(entry_id=entry.id, trade_id=trade.id, method=payment_method, card_type=card_type,
+                       amount=quote.amount, wallet_delta=delta,
+                       account_balance_after=account.balance if account else None))
     await db.commit()
     logger.info("Simulated %s user_id=%s trade_id=%s quote_id=%s", action, user_id, trade.id, quote.id)
     return result
@@ -218,10 +234,36 @@ async def top_up(db: AsyncSession, user_id, key: str, amount: Decimal) -> dict:
         raise HTTPException(409, "Wallet balance limit exceeded")
     wallet.balance = money(wallet.balance + amount)
     result = wallet_data(wallet)
-    db.add(CreditEntry(user_id=user_id, action="demo_top_up", amount=amount, balance_after=wallet.balance,
-                      request_key=key, fingerprint=fingerprint, result=result))
+    entry = CreditEntry(user_id=user_id, action="demo_top_up", amount=amount, balance_after=wallet.balance,
+                        request_key=key, fingerprint=fingerprint, result=result)
+    db.add(entry)
+    await db.flush()
+    db.add(Payment(entry_id=entry.id, method="credits", amount=amount, wallet_delta=amount))
     await db.commit()
     logger.info("Demo credits added user_id=%s", user_id)
+    return result
+
+
+async def fund_wallet(db: AsyncSession, user_id, key: str, amount: Decimal,
+                      payment_method: str, card_type: str | None) -> dict:
+    amount = money(amount)
+    fingerprint = hashlib.sha256(f"fund:{number(amount)}:{payment_method}:{card_type}".encode()).hexdigest()
+    wallet = await lock_wallet(db, user_id)
+    previous = await replay(db, user_id, key, fingerprint)
+    if previous is not None:
+        return previous
+    if wallet.balance + amount >= MAX_AMOUNT:
+        raise HTTPException(409, "Wallet balance limit exceeded")
+    account = await charge(db, user_id, payment_method, card_type, amount)
+    wallet.balance = money(wallet.balance + amount)
+    result = wallet_data(wallet)
+    entry = CreditEntry(user_id=user_id, action="top_up", amount=amount, balance_after=wallet.balance,
+                        request_key=key, fingerprint=fingerprint, result=result)
+    db.add(entry)
+    await db.flush()
+    db.add(Payment(entry_id=entry.id, method=payment_method, card_type=card_type, amount=amount,
+                   wallet_delta=amount, account_balance_after=account.balance))
+    await db.commit()
     return result
 
 

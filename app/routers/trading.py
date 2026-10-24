@@ -1,4 +1,4 @@
-"""Development-only wallets and paper executions; private reads require auth."""
+"""Simulated wallets, payments and executions; private reads require auth."""
 
 import asyncio
 from typing import Annotated, Literal
@@ -14,8 +14,9 @@ from app.models.database import get_db
 from app.models.trading import Trade, Wallet
 from app.models.user import User
 from app.schemas.api_response import ApiResponse
-from app.schemas.trading import ExecuteRequest, QuoteRequest, TopUpRequest
+from app.schemas.trading import ExecuteRequest, FundingRequest, PurchaseRequest, QuoteRequest, TopUpRequest
 from app.trading import service
+from app.trading.payments import accounts_data
 from app.trading.quotes import QuoteUnavailable, quote_service, resolve_source, usd_rate
 
 router = APIRouter(prefix="/api/v1/trading", tags=["simulated trading"])
@@ -25,12 +26,18 @@ RequestKey = Annotated[UUID, Header(alias="Idempotency-Key")]
 
 
 def enabled() -> bool:
-    return config.APP_ENV == "development" and config.DEV_TRADING_ENABLED
+    return config.SIMULATED_TRADING_ENABLED or (config.APP_ENV == "development" and config.DEV_TRADING_ENABLED)
 
 
 def require_trading() -> None:
     if not enabled():
-        raise HTTPException(404, "Development trading is disabled")
+        raise HTTPException(404, "Simulated trading is disabled")
+
+
+def require_development() -> None:
+    require_trading()
+    if config.APP_ENV != "development":
+        raise HTTPException(404, "Demo top-ups are development-only")
 
 
 def response(data: dict) -> ApiResponse[dict]:
@@ -41,7 +48,8 @@ def response(data: dict) -> ApiResponse[dict]:
 async def capabilities():
     return response({"enabled": enabled(), "simulated": True, "usd_per_credit": "1.00000000",
                      "payment_methods": {"credits": "enabled" if enabled() else "disabled",
-                                         "card": "coming_soon", "paypal": "coming_soon",
+                                         "card": "enabled" if enabled() else "disabled",
+                                         "paypal": "enabled" if enabled() else "disabled",
                                          "bank_transfer": "coming_soon"}})
 
 
@@ -58,9 +66,21 @@ async def wallet(db: Db, user: Actor):
     return response(service.wallet_data(item))
 
 
-@router.post("/wallet/demo-top-ups", dependencies=[Depends(require_trading)], response_model=ApiResponse[dict])
+@router.post("/wallet/demo-top-ups", dependencies=[Depends(require_development)], response_model=ApiResponse[dict])
 async def top_up(body: TopUpRequest, key: RequestKey, db: Db, user: Actor):
     return response(await service.top_up(db, user.id, str(key), body.amount))
+
+
+@router.get("/payment-accounts", dependencies=[Depends(require_trading)], response_model=ApiResponse[dict])
+async def payment_accounts(db: Db, user: Actor):
+    await service.initialize_wallet(db, user.id)
+    return response(await accounts_data(db, user.id))
+
+
+@router.post("/wallet/top-ups", dependencies=[Depends(require_trading)], response_model=ApiResponse[dict])
+async def fund(body: FundingRequest, key: RequestKey, db: Db, user: Actor):
+    return response(await service.fund_wallet(db, user.id, str(key), body.amount,
+                                            body.payment_method, body.card_type))
 
 
 @router.post("/quotes", dependencies=[Depends(require_trading)], response_model=ApiResponse[dict])
@@ -69,8 +89,9 @@ async def quote(body: QuoteRequest, db: Db, user: Actor):
 
 
 @router.post("/trades", dependencies=[Depends(require_trading)], response_model=ApiResponse[dict])
-async def buy(body: ExecuteRequest, key: RequestKey, db: Db, user: Actor):
-    return response(await service.execute(db, user.id, str(key), str(body.quote_id)))
+async def buy(body: PurchaseRequest, key: RequestKey, db: Db, user: Actor):
+    return response(await service.execute(db, user.id, str(key), str(body.quote_id),
+                                         payment_method=body.payment_method, card_type=body.card_type))
 
 
 @router.post("/trades/{trade_id}/sell", dependencies=[Depends(require_trading)], response_model=ApiResponse[dict])

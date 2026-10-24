@@ -11,6 +11,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { ApiError, api } from "./api";
 import type { User } from "./types";
@@ -26,6 +27,7 @@ interface AuthState {
 const AuthContext = createContext<AuthState | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -76,7 +78,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!(error instanceof ApiError && error.isUnauthorized)) throw error;
     }
     setUser(null);
-  }, []);
+    await queryClient.cancelQueries({ queryKey: ["trading"] });
+    queryClient.removeQueries({ queryKey: ["trading"] });
+  }, [queryClient]);
 
   const value = useMemo(
     () => ({ user, loading, login, register, logout }),

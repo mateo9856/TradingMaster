@@ -19,6 +19,29 @@ export function formatExchange(exchange: string): string {
   return EXCHANGE_NAMES.get(exchange.toLowerCase()) ?? exchange.charAt(0).toUpperCase() + exchange.slice(1);
 }
 
+/** Cash display only. Decimal-string arithmetic keeps large balances exact. */
+export function formatCash(value: string | null | undefined): string {
+  if (value == null) return "—";
+  const match = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))(?:[eE]([+-]?\d+))?$/.exec(value.trim());
+  if (!match) return "—";
+  const negative = match[1] === "-";
+  const whole = match[2] ?? "0";
+  const fraction = match[3] ?? match[4] ?? "";
+  const exponent = Number(match[5] ?? 0);
+  if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 100) return "—";
+  const digits = whole + fraction;
+  const point = whole.length + exponent;
+  const integer = point <= 0 ? "0" : digits.slice(0, point).padEnd(point, "0");
+  const decimals = point < 0 ? "0".repeat(-point) + digits : digits.slice(point);
+  const nonzero = /[1-9]/.test(digits);
+  if (BigInt(integer) === 0n && decimals.slice(0, 2).padEnd(2, "0") === "00" && nonzero) {
+    return negative ? "-<0.01" : "<0.01";
+  }
+  let cents = BigInt(integer) * 100n + BigInt(decimals.slice(0, 2).padEnd(2, "0"));
+  if ((decimals[2] ?? "0") >= "5") cents += 1n;
+  return `${negative && cents !== 0n ? "-" : ""}${cents / 100n}.${String(cents % 100n).padStart(2, "0")}`;
+}
+
 /** Decimal string (or number) → number, for charting and maths. NaN-safe: throws instead. */
 export function toNumber(value: string | number): number {
   // Number("") is 0 — an empty price must fail loudly, not render as zero.

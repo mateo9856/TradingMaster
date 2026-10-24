@@ -316,7 +316,8 @@ export function LivePage() {
       ) : null}
 
       <Card>
-        <CardHeader title={t("live.price")} description={`${formatExchange(exchange ?? "")} · ${shownTicker} · ${interval}`} />
+        <CardHeader title={t("live.price")} description={`${formatExchange(exchange ?? "")} · ${shownTicker} · ${interval}`}
+          actions={exchange && <PurchasePanel ticker={market.ticker} exchange={exchange} />} />
         <CardBody>
           {candlesQuery.isPending ? (
             <p className="text-sm text-muted-foreground">{t("live.loadingCandles")}</p>
@@ -333,8 +334,6 @@ export function LivePage() {
           )}
         </CardBody>
       </Card>
-
-      {exchange && <PurchasePanel ticker={market.ticker} exchange={exchange} />}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

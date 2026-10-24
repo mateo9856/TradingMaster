@@ -1,4 +1,4 @@
-"""Development paper trading. All balances and executions settle in USD credits."""
+"""Simulated USD trading, payment accounts and accounting history."""
 
 import uuid
 
@@ -80,3 +80,34 @@ class CreditEntry(Base):
     result = Column(JSON, nullable=False)
     created_at = Column(DateTime, nullable=False, default=utc_now_naive)
     __table_args__ = (UniqueConstraint("user_id", "request_key", name="uq_credit_user_request"),)
+
+
+class PaymentAccount(Base):
+    __tablename__ = "trading_payment_accounts"
+    user_id = Column(Uuid, ForeignKey("trading_wallets.user_id", ondelete="CASCADE"), primary_key=True)
+    kind = Column(String(8), primary_key=True)
+    # Debit/PayPal: remaining funds. Credit: outstanding debt.
+    balance = Column(AMOUNT, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    __table_args__ = (
+        CheckConstraint("balance >= 0", name="balance_nonnegative"),
+        CheckConstraint("kind IN ('debit', 'credit', 'paypal')", name="valid_kind"),
+    )
+
+
+class Payment(Base):
+    __tablename__ = "trading_payments"
+    id = Column(String(36), primary_key=True, default=new_id)
+    entry_id = Column(String(36), ForeignKey("trading_credit_entries.id", ondelete="CASCADE"), nullable=False, unique=True)
+    trade_id = Column(String(36), ForeignKey("trading_trades.id"), nullable=True, unique=True)
+    method = Column(String(8), nullable=False)
+    card_type = Column(String(6), nullable=True)
+    amount = Column(AMOUNT, nullable=False)
+    wallet_delta = Column(AMOUNT, nullable=False)
+    account_balance_after = Column(AMOUNT, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=utc_now_naive)
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="amount_positive"),
+        CheckConstraint("(method = 'card' AND card_type IS NOT NULL AND card_type IN ('debit', 'credit')) OR "
+                        "(method IN ('credits', 'paypal') AND card_type IS NULL)", name="valid_method"),
+    )
