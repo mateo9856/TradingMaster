@@ -61,6 +61,10 @@
     "breadcrumb_home": "Hjem",
     "breadcrumb_markets": "Markeder",
     "trades_title": "Mine handler | TradingMaster",
-    "trades_description": "Simulert handel · bare utviklingskreditter"
+    "trades_description": "Simulert handel · ingen ekte betalinger eller beholdninger",
+    "checkout_title": "Kjøp | TradingMaster",
+    "checkout_description": "Simulerte kjøp og kontomidler",
+    "wallet_title": "Legg til midler | TradingMaster",
+    "wallet_description": "Simulerte kjøp og kontomidler"
   }
 }

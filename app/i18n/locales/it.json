@@ -61,6 +61,10 @@
     "breadcrumb_home": "Home",
     "breadcrumb_markets": "Mercati",
     "trades_title": "Le mie operazioni | TradingMaster",
-    "trades_description": "Trading simulato · solo crediti di sviluppo"
+    "trades_description": "Trading simulato · nessun pagamento o attività reale",
+    "checkout_title": "Acquisto | TradingMaster",
+    "checkout_description": "Acquisti simulati e fondi del conto",
+    "wallet_title": "Aggiungi fondi | TradingMaster",
+    "wallet_description": "Acquisti simulati e fondi del conto"
   }
 }

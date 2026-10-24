@@ -61,6 +61,10 @@
     "breadcrumb_home": "Startseite",
     "breadcrumb_markets": "Märkte",
     "trades_title": "Meine Trades | TradingMaster",
-    "trades_description": "Simulierter Handel · nur Entwicklungsguthaben"
+    "trades_description": "Simulierter Handel · keine echten Zahlungen oder Bestände",
+    "checkout_title": "Kaufabschluss | TradingMaster",
+    "checkout_description": "Simulierte Käufe und Kontoguthaben",
+    "wallet_title": "Guthaben aufladen | TradingMaster",
+    "wallet_description": "Simulierte Käufe und Kontoguthaben"
   }
 }

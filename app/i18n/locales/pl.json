@@ -61,6 +61,10 @@
     "breadcrumb_home": "Strona główna",
     "breadcrumb_markets": "Rynki",
     "trades_title": "Moje transakcje | TradingMaster",
-    "trades_description": "Handel symulowany · tylko kredyty deweloperskie"
+    "trades_description": "Handel symulowany · bez prawdziwych płatności i aktywów",
+    "checkout_title": "Zakup | TradingMaster",
+    "checkout_description": "Symulowane zakupy i środki na koncie",
+    "wallet_title": "Dodaj środki | TradingMaster",
+    "wallet_description": "Symulowane zakupy i środki na koncie"
   }
 }
