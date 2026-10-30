@@ -1,6 +1,11 @@
 import pytest
 
-from app.helpers.intervals import SUPPORTED_INTERVALS, bucket_start, interval_to_ms, validate_interval
+from app.helpers.intervals import (
+    SUPPORTED_INTERVALS,
+    bucket_start,
+    interval_to_ms,
+    validate_interval,
+)
 
 
 @pytest.mark.parametrize("interval, expected_ms", [

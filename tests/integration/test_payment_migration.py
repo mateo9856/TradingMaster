@@ -1,10 +1,10 @@
 """Run the payment revision against existing trading records without PostgreSQL."""
 
 import importlib.util
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 from pathlib import Path
-import uuid
 
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
@@ -14,7 +14,14 @@ from sqlalchemy.orm import Session
 
 from app.helpers.time import utc_now_naive
 from app.models import Base
-from app.models.trading import CreditEntry, Payment, PaymentAccount, Trade, TradingQuote, Wallet
+from app.models.trading import (
+    CreditEntry,
+    Payment,
+    PaymentAccount,
+    Trade,
+    TradingQuote,
+    Wallet,
+)
 from app.models.user import User
 
 

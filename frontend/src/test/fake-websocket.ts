@@ -1,6 +1,6 @@
 import { vi } from "vitest";
 
-import type { LiveCandle } from "@/lib/types";
+import type { LiveCandle } from "@/features/markets/types";
 
 /**
  * Minimal WebSocket stand-in. jsdom's implementation would try to open a real

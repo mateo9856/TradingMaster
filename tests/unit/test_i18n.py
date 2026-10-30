@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from app.helpers.instruments import CATALOG, CRYPTO_CATEGORIES, STOCK_SECTORS, VENUES
+from app.helpers.instruments import CRYPTO_CATEGORIES, STOCK_SECTORS, VENUES
 from app.i18n import SUPPORTED_LANGUAGES, catalog, describe, label, t, validate_language
 
-LOCALES = Path("app/i18n/locales")
+LOCALES = Path("src/app/i18n/locales")
 
 
 def _keys(node, prefix=""):

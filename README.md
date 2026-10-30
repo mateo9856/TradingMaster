@@ -54,8 +54,11 @@ How the session works: signing in through the UI sets an **http-only, `SameSite=
 ## Project layout
 
 ```text
-app/
-├── main.py                       FastAPI application and lifecycle management
+src/app/
+├── main.py                       Compatibility entrypoint (app.main:app)
+├── bootstrap/                    App factory, lifespan, middleware, routes, SPA serving
+├── paths.py                      Deployment paths independent of installed package location
+├── trading/                      Execution, quotes, payments, valuation and serialization
 ├── config.py                     Environment-based configuration
 ├── routers/market.py             REST and WebSocket market endpoints
 ├── models/                       SQLAlchemy ORM models and database helpers
@@ -70,12 +73,27 @@ app/
 └── eod_runner.py                 Standalone EOD archive entry point (one-shot, external scheduler)
 tests/                            Unit and API/integration tests
 frontend/                         React + Vite MVP UI
-├── src/lib/                      API client, unified-format helpers, auth
-├── src/hooks/useLiveCandles.ts   WebSocket live candle stream
-├── src/components/               Chart, shell and UI primitives
-├── src/pages/                    Live, History, System, Login, Profile
+├── src/app/                      Shell, routes and provider composition
+├── src/features/                 auth, markets, history, system, trading (including payments)
+├── src/shared/                   HTTP transport, primitives, formatting, currency, i18n, SEO
+├── src/locales/                  UI translations
 └── src/test/                     Vitest setup, mock API (MSW), fake WebSocket
 ```
+
+## Packaging, paths and quality checks
+
+Install application dependencies from `requirements.lock` (or update them through the existing `requirements.txt` → lock workflow), development tools from `requirements-dev.txt`, then install the package with `pip install --no-deps -e .`. The `app` import namespace and `uvicorn app.main:app`, `python -m app.producer_runner`, and `python -m app.eod_runner` entrypoints are unchanged. PyFlink keeps its own environment and runs `env_flink/bin/python src/app/flink_jobs/candle_builder.py` directly.
+
+Editable checkouts default to the repository root for `.env`, `migrations/`, `alembic.ini`, and `frontend/dist`. Wheel deployments should set `APP_ROOT` to a directory containing those deployment assets; the API image sets it to `/app`. Set `APP_ENV_FILE`, `MIGRATIONS_DIR`, `ALEMBIC_CONFIG`, or `FRONTEND_DIST` to override individual locations (relative paths resolve against `APP_ROOT`). Locales ship inside the wheel through `importlib.resources`; migrations and the frontend bundle ship separately. Alembic resolves its migration directory relative to its config file. Outside the checkout, use `alembic -c /deployment/alembic.ini ...`.
+
+```bash
+env/bin/python -m ruff check .
+npm --prefix frontend run lint
+npm --prefix frontend run typecheck
+./dev verify  # both linters, type checking, both suites and production build
+```
+
+Ruff checks Python syntax/correctness, unused imports and import order across application code, tests and migration tooling. Three import-only exceptions preserve published migration revisions byte-for-byte. ESLint checks JavaScript/TypeScript correctness and React Hooks, and prevents shared infrastructure from importing application or feature implementations. TypeScript owns type checking. Environments, JARs, dependencies and generated outputs are excluded. Neither linter performs wholesale formatting.
 
 ## Requirements
 
@@ -90,10 +108,11 @@ Public market streams do not require exchange API keys.
 ## Installation
 
 ```bash
-python -m venv .env
-source .env/bin/activate
+python -m venv env
+source env/bin/activate
 pip install -r requirements.txt
-pip install -r requirements-test.txt
+pip install -r requirements-dev.txt
+pip install --no-deps -e .
 ```
 
 PyFlink is intentionally omitted from `requirements.txt`; install it separately according to the PyFlink/Python/Java versions in your deployment.
@@ -123,7 +142,7 @@ AUTH_TOKEN_LIFETIME_SECONDS=3600
 
 `AUTH_SECRET` signs the session JWTs (FastAPI Users). The development fallback is a literal published in this repository, so anyone could forge a session with it — generate a real value (`python3 -c "import secrets; print(secrets.token_urlsafe(48))"`) for every non-dev deployment. `AUTH_COOKIE_SECURE` defaults to `false` so plain-http local development works; set it to `true` in every real deployment (the production Kustomize overlay already does). With `APP_ENV=production` the app refuses to start if either is wrong, rather than running on the insecure value.
 
-`APP_ENV=production` turns on strict start-up validation (`app/config.py`,
+`APP_ENV=production` turns on strict start-up validation (`src/app/config.py`,
 `validate_config`): the app refuses to boot on the development `AUTH_SECRET`, on
 an empty one, with `AUTH_COOKIE_SECURE=false`, or with a wildcard/plain-http
 CORS origin. Every one of those used to fail open. See `.env.example` for the
@@ -320,7 +339,7 @@ also removes wallets, trades and ledger history.
 
 ## Auth
 
-User accounts are provided by [FastAPI Users](https://fastapi-users.github.io/fastapi-users/) (`app/auth/`), backed by a `users` table via `fastapi-users-db-sqlalchemy`. Market read endpoints and the market WebSocket remain public. Wallet/trade reads and writes are private; every mutating (`POST`/`PUT`/`PATCH`) endpoint under `/api/v1/market`, `/api/v1/exchanges`, and the manual history-archive trigger requires an authenticated active user.
+User accounts are provided by [FastAPI Users](https://fastapi-users.github.io/fastapi-users/) (`src/app/auth/`), backed by a `users` table via `fastapi-users-db-sqlalchemy`. Market read endpoints and the market WebSocket remain public. Wallet/trade reads and writes are private; every mutating (`POST`/`PUT`/`PATCH`) endpoint under `/api/v1/market`, `/api/v1/exchanges`, and the manual history-archive trigger requires an authenticated active user.
 
 The same JWT travels two ways, and protected endpoints accept either:
 
@@ -438,7 +457,7 @@ Topics use `{exchange}.{UNIFIED_TICKER_WITHOUT_SLASH}.candles`, for example `bin
 
 After installing PyFlink and making the JDBC dependencies available to Flink:
 
-The JDBC connector is modular in Flink 2.x. The `app/flink_jobs/jars/` directory must contain all of these files:
+The JDBC connector is modular in Flink 2.x. The `src/app/flink_jobs/jars/` directory must contain all of these files:
 
 - `flink-connector-jdbc-core-4.0.0-2.0.jar`
 - `flink-connector-jdbc-postgres-4.0.0-2.0.jar`
@@ -452,7 +471,7 @@ For a host-side run against the Compose database:
 export TIMESCALE_JDBC_URL='jdbc:postgresql://localhost:5432/tradingmaster'
 export TIMESCALE_USER='user'
 export TIMESCALE_PASS='mysecretpassword'
-env_flink/bin/python app/flink_jobs/candle_builder.py
+env_flink/bin/python src/app/flink_jobs/candle_builder.py
 ```
 
 Run it as a script, not with `python -m app.flink_jobs...`. Importing the `app` package pulls in the API's dependencies, which `env_flink` doesn't have.
@@ -473,11 +492,11 @@ pip install python-json-logger opentelemetry-api "psycopg[binary]"
 
 `psycopg` is required: it's how the job reads the enabled exchanges from the database.
 
-If they aren't importable, the job falls back to plain-text logging rather than failing — see `app/flink_jobs/candle_builder.py`'s import guard.
+If they aren't importable, the job falls back to plain-text logging rather than failing — see `src/app/flink_jobs/candle_builder.py`'s import guard.
 
 ## Running the EOD archive job
 
-The EOD archive job (candles -> candles_history + Parquet, `app/jobs/eod_archive.py`) runs as a **standalone, one-shot process** (`app/eod_runner.py`), not an in-process scheduler inside the API. It used to be an `asyncio` loop started in `app/main.py`'s lifespan — that meant a crashed or redeployed API process silently skipped that day's archive run. Driving it externally instead means it fires regardless of the API's own uptime.
+The EOD archive job (candles -> candles_history + Parquet, `src/app/jobs/eod_archive.py`) runs as a **standalone, one-shot process** (`src/app/eod_runner.py`), not an in-process scheduler inside the API. It used to be an `asyncio` loop started in `src/app/main.py`'s lifespan — that meant a crashed or redeployed API process silently skipped that day's archive run. Driving it externally instead means it fires regardless of the API's own uptime.
 
 ```bash
 source env/bin/activate
@@ -507,7 +526,7 @@ serves at `GET /api/v1/history/archive/runs` — the scheduled job runs in its o
 short-lived process that Prometheus never scrapes, so this is the only way its
 outcome is visible.
 
-Schedule it with cron, a systemd timer, or — in Kubernetes — the `eod-archive` CronJob in `k8s/base/eod-cronjob.yaml` (defaults to `30 23 * * *`, i.e. 23:30 UTC — 30 minutes before the day rolls over, giving `backoffLimit` retries room to finish before midnight; reuses the FastAPI image with `python -m app.eod_runner` as its command). The schedule is parametrized per environment via a Kustomize patch on `spec.schedule` rather than hardcoded — `k8s/overlays/local/eod-patch.yaml` overrides it to run every 10 minutes for local testing, and a production overlay can set its own cadence the same way. For ad-hoc runs without waiting on the schedule, `POST /api/v1/history/archive/{target_date}` (in `app/routers/history.py`) still triggers a background run through the API.
+Schedule it with cron, a systemd timer, or — in Kubernetes — the `eod-archive` CronJob in `k8s/base/eod-cronjob.yaml` (defaults to `30 23 * * *`, i.e. 23:30 UTC — 30 minutes before the day rolls over, giving `backoffLimit` retries room to finish before midnight; reuses the FastAPI image with `python -m app.eod_runner` as its command). The schedule is parametrized per environment via a Kustomize patch on `spec.schedule` rather than hardcoded — `k8s/overlays/local/eod-patch.yaml` overrides it to run every 10 minutes for local testing, and a production overlay can set its own cadence the same way. For ad-hoc runs without waiting on the schedule, `POST /api/v1/history/archive/{target_date}` (in `src/app/routers/history.py`) still triggers a background run through the API.
 
 ## Observability
 
@@ -515,7 +534,7 @@ Schedule it with cron, a systemd timer, or — in Kubernetes — the `eod-archiv
 docker compose up -d prometheus grafana jaeger loki promtail
 ```
 
-- **Metrics**: Prometheus at `http://localhost:9090` scrapes `/metrics` on the FastAPI app (`prometheus-client`, see `app/metrics.py`) and Flink's own JVM-side Prometheus reporter on port 9250. Grafana at `http://localhost:3000` (`admin`/`admin` locally) auto-provisions both as datasources plus a starter "TradingMaster Overview" dashboard.
+- **Metrics**: Prometheus at `http://localhost:9090` scrapes `/metrics` on the FastAPI app (`prometheus-client`, see `src/app/metrics.py`) and Flink's own JVM-side Prometheus reporter on port 9250. Grafana at `http://localhost:3000` (`admin`/`admin` locally) auto-provisions both as datasources plus a starter "TradingMaster Overview" dashboard.
 - **Tracing**: the FastAPI app and Kafka producer export spans via OpenTelemetry OTLP to Jaeger at `http://localhost:16686`. The Flink job cannot hold per-record spans (it runs Table API/SQL with no Python callback in the hot path) — instead it extracts the W3C `traceparent` header the producer attaches to each Kafka message and writes the trace id into `candles.trace_id`, so a persisted row can be correlated back to its producing trace with `SELECT * FROM candles WHERE trace_id = '<id>'`.
 - **Alerting**: nine rules in `observability/prometheus/rules/tradingmaster.yml`
   cover a failed or stale end-of-day archive, a stalled producer, sustained FX
@@ -525,7 +544,7 @@ docker compose up -d prometheus grafana jaeger loki promtail
   `observability/alertmanager/alertmanager.yml` (Compose) or the
   `alertmanager-config` ConfigMap (Kubernetes); no code change is needed.
   Validate with `promtool check config observability/prometheus/prometheus.yml`.
-- **Logs**: every Python entrypoint (`app/main.py`, `app/producer_runner.py`, `app/flink_jobs/candle_builder.py`) emits structured JSON logs (`app/logging_config.py`), tagged with `trace_id`/`span_id` when an OTel span is active. Promtail ships them to Loki, browsable from Grafana Explore; a `trace_id` field in a log line links out to the matching Jaeger trace.
+- **Logs**: every Python entrypoint (`src/app/main.py`, `src/app/producer_runner.py`, `src/app/flink_jobs/candle_builder.py`) emits structured JSON logs (`src/app/logging_config.py`), tagged with `trace_id`/`span_id` when an OTel span is active. Promtail ships them to Loki, browsable from Grafana Explore; a `trace_id` field in a log line links out to the matching Jaeger trace.
   Promtail (in this Compose setup) only tails **containers**, via the Docker socket. The FastAPI app and standalone producer run on the host by default (`uvicorn app.main:app`, `python -m app.producer_runner`), so their JSON logs land on your terminal / redirected file, not in Loki — only the containerized `flink` job's logs show up there locally. In Kubernetes this gap doesn't exist: Promtail runs as a DaemonSet and picks up every pod, FastAPI included.
 
 ## Testing

@@ -4,8 +4,7 @@ import type { RenderResult } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactElement } from "react";
 
-import { AuthProvider } from "@/lib/auth";
-import { CurrencyProvider } from "@/lib/currency-context";
+import { AppProviders } from "@/app/providers";
 
 /** Renders a screen with the providers the app wires up in main.tsx. */
 export function renderApp(ui: ReactElement, { route = "/" }: { route?: string } = {}): RenderResult {
@@ -15,11 +14,9 @@ export function renderApp(ui: ReactElement, { route = "/" }: { route?: string } 
 
   return render(
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <CurrencyProvider>
-          <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
-        </CurrencyProvider>
-      </AuthProvider>
+      <AppProviders>
+        <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
+      </AppProviders>
     </QueryClientProvider>,
   );
 }

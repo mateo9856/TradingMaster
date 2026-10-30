@@ -1,6 +1,9 @@
 import { HttpResponse, http } from "msw";
 
-import type { Candle, Currencies, HistoryCandle, LiveCandle, Market, User } from "@/lib/types";
+import type { Candle, LiveCandle, Market } from "@/features/markets/types";
+import type { Currencies } from "@/shared/currency-types";
+import type { HistoryCandle } from "@/features/history/types";
+import type { User } from "@/features/auth/types";
 
 export function envelope<T>(data: T, message = "ok") {
   return { status: "success", message, data };

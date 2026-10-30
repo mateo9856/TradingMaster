@@ -23,18 +23,18 @@ os.environ.setdefault("OTEL_ENABLED", "false")
 os.environ.setdefault("DB_SCHEMA_CHECK", "false")
 
 import uuid
+from datetime import datetime
+from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
-from datetime import datetime
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from unittest.mock import AsyncMock, patch
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.auth import current_active_user
-from app.models.database import Base, get_db
 from app.models.candle import Candle as CandleORM
 from app.models.candle_history import CandleHistory
+from app.models.database import Base, get_db
 from app.models.exchange import Exchange, Symbol
 from app.models.user import User
 
@@ -120,7 +120,7 @@ async def client(reset_database) -> AsyncClient:
         async with TestingSessionLocal() as session:
             yield session
 
-    with patch("app.main.run_producer", new_callable=AsyncMock) as mock_producer:
+    with patch("app.bootstrap.lifespan.run_producer", new_callable=AsyncMock) as mock_producer:
         mock_producer.return_value = None
 
         from app.main import app
@@ -143,7 +143,7 @@ async def anonymous_client(reset_database) -> AsyncClient:
         async with TestingSessionLocal() as session:
             yield session
 
-    with patch("app.main.run_producer", new_callable=AsyncMock) as mock_producer:
+    with patch("app.bootstrap.lifespan.run_producer", new_callable=AsyncMock) as mock_producer:
         mock_producer.return_value = None
 
         from app.main import app

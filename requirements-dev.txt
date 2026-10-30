@@ -1,0 +1,5 @@
+# App and test dependencies retain their existing requirement/lock workflows.
+-r requirements-test.txt
+ruff>=0.9,<1
+setuptools>=69
+wheel

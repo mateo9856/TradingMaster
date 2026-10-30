@@ -1,10 +1,10 @@
 """Real wallet/trade persistence with deterministic public quote boundaries."""
 
 import asyncio
+import uuid
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import AsyncMock
-import uuid
 
 import pytest
 from sqlalchemy import func, select
@@ -14,7 +14,7 @@ from app.auth import current_active_user
 from app.helpers.time import utc_now_naive
 from app.models.exchange import Exchange, Symbol
 from app.models.fiat_rate import FiatRate
-from app.models.trading import CreditEntry, Trade, TradingQuote, Wallet
+from app.models.trading import CreditEntry, Trade, TradingQuote
 from app.models.user import User
 from app.trading.quotes import PriceQuote, QuoteService, QuoteUnavailable, quote_service
 
@@ -182,14 +182,25 @@ async def test_quote_outage_reports_unknown_valuation_and_blocks_new_previews(tr
 
 async def test_user_cannot_access_another_wallet_trade_or_quote(trader, db_session):
     from app.main import app
+    from app.schemas.trading import PaymentAccountsResponse
+
     bought = await purchase(trader)
     quote = await buy_quote(trader)
+    funded = await trader.post(PREFIX + "/wallet/top-ups", json={"amount": "3", "payment_method": "paypal"},
+                               headers=key())
+    assert funded.json()["data"]["balance"] == "903.00000000"
+    original_accounts = (await trader.get(PREFIX + "/payment-accounts")).json()["data"]
+    assert PaymentAccountsResponse.model_validate(original_accounts).model_dump() == original_accounts
     other = User(id=uuid.uuid4(), email="other@example.com", hashed_password="unused", is_active=True)
     db_session.add(other)
     await db_session.commit()
     app.dependency_overrides[current_active_user] = lambda: other
     assert (await trader.get(PREFIX + "/wallet")).status_code == 404
-    await trader.post(PREFIX + "/wallet/initialize")
+    # The extracted read service initializes only the current actor's accounts.
+    other_accounts = (await trader.get(PREFIX + "/payment-accounts")).json()["data"]
+    assert Decimal(other_accounts["accounts"]["paypal"]["balance"]) == config.SIMULATED_PAYPAL_BALANCE
+    assert Decimal(original_accounts["accounts"]["paypal"]["balance"]) == config.SIMULATED_PAYPAL_BALANCE - 3
+    assert (await trader.get(PREFIX + "/wallet")).json()["data"]["balance"] == "1000.00000000"
     assert (await trader.get(PREFIX + "/trades")).json()["data"]["total"] == 0
     assert (await trader.post(PREFIX + "/trades", json={"quote_id": quote["id"]}, headers=key())).status_code == 404
     result = await trader.post(PREFIX + "/quotes", json={"side": "sell", "trade_id": bought["trade"]["id"]})
@@ -324,3 +335,112 @@ async def test_auth_csrf_and_development_gate(anonymous_client, enable_trading, 
     monkeypatch.setattr(config, "APP_ENV", "production")
     assert (await anonymous_client.get(PREFIX + "/capabilities")).json()["data"]["enabled"] is False
     assert (await anonymous_client.post(PREFIX + "/wallet/initialize")).status_code == 404
+
+
+async def test_typed_execution_preserves_exact_persisted_replay(trader, db_session):
+    from app.schemas.trading import ExecutionResponse, QuoteResponse
+
+    quote = await buy_quote(trader, "1")
+    assert QuoteResponse.model_validate(quote).model_dump() == quote
+    headers = key()
+    result = await trader.post(PREFIX + "/trades", json={"quote_id": quote["id"]}, headers=headers)
+    body = result.json()
+    entry = await db_session.scalar(select(CreditEntry).where(
+        CreditEntry.request_key == headers["Idempotency-Key"]))
+    assert body == {"status": "success", "message": None, "data": entry.result}
+    assert ExecutionResponse.model_validate(entry.result).model_dump() == entry.result
+    assert body["data"]["trade"]["closed_at"] is None
+    assert body["data"]["trade"]["opened_at"].endswith("Z")
+    assert "valuation" not in body["data"]["trade"]
+    assert (await trader.post(PREFIX + "/trades", json={"quote_id": quote["id"]}, headers=headers)).json() == body
+
+
+async def test_pagination_and_partial_valuation_remain_independent(trader, db_session, price):
+    from app.schemas.trading import TradePageResponse
+
+    first = await purchase(trader)
+    exchange = await db_session.scalar(select(Exchange).where(Exchange.name == "kraken"))
+    db_session.add(Symbol(exchange_id=exchange.id, ticker="ETH/USD", interval="1m"))
+    await db_session.commit()
+    quote = await trader.post(PREFIX + "/quotes", json={"side": "buy", "exchange": "kraken",
+                                                     "ticker": "ETH/USD", "budget": "50"})
+    await trader.post(PREFIX + "/trades", json={"quote_id": quote.json()["data"]["id"]}, headers=key())
+
+    async def partial(db, source, **kwargs):
+        if source.ticker == "ETH/USD":
+            raise QuoteUnavailable("Provider offline")
+        now = utc_now_naive()
+        return PriceQuote(Decimal(99), Decimal(100), now, now), Decimal(1)
+
+    price.side_effect = partial
+    page = (await trader.get(PREFIX + "/trades?limit=2")).json()["data"]
+    assert TradePageResponse.model_validate(page).model_dump() == page
+    assert page["total"] == 2
+    by_ticker = {item["ticker"]: item for item in page["items"]}
+    assert by_ticker["BTC/USD"]["valuation"]["sell_value"] == "99.00000000"
+    assert by_ticker["ETH/USD"]["valuation"] is None
+    assert by_ticker["ETH/USD"]["valuation_error"] == "Provider offline"
+    second_page = (await trader.get(PREFIX + "/trades?limit=1&offset=1")).json()["data"]
+    assert second_page["total"] == 2 and second_page["limit"] == 1 and second_page["offset"] == 1
+    assert second_page["items"][0]["id"] == first["trade"]["id"]
+    empty_page = (await trader.get(PREFIX + "/trades?limit=1&offset=2")).json()["data"]
+    assert empty_page == {"items": [], "total": 2, "limit": 1, "offset": 2}
+
+
+async def test_valuation_resolves_session_inputs_sequentially(trader, monkeypatch):
+    from app.trading import service
+
+    await purchase(trader)
+    await purchase(trader)
+    resolving = False
+    original = service.resolve_source
+
+    async def source(*args, **kwargs):
+        nonlocal resolving
+        assert not resolving
+        resolving = True
+        try:
+            await asyncio.sleep(0)
+            return await original(*args, **kwargs)
+        finally:
+            resolving = False
+
+    resolved = AsyncMock(wraps=source)
+    monkeypatch.setattr(service, "resolve_source", resolved)
+    rate = AsyncMock(return_value=Decimal(1))
+    monkeypatch.setattr(service, "usd_rate", rate)
+    assert (await trader.get(PREFIX + "/trades")).status_code == 200
+    resolved.assert_awaited_once()
+    rate.assert_awaited_once()
+
+
+@pytest.mark.parametrize("error", [RuntimeError("FX bug"), asyncio.CancelledError()])
+async def test_valuation_does_not_hide_unexpected_fx_errors(trader, monkeypatch, error):
+    from app.trading import service
+
+    await purchase(trader)
+    monkeypatch.setattr(service, "usd_rate", AsyncMock(side_effect=error))
+    # Exercise the service directly: ASGI task groups can wrap cancellation.
+    from tests.conftest import TestingSessionLocal
+
+    async with TestingSessionLocal() as session:
+        trade = await session.scalar(select(Trade))
+        with pytest.raises(type(error)):
+            await service.list_trades(session, trade.user_id)
+
+
+def test_all_trading_endpoints_publish_explicit_response_schemas():
+    from app.main import app
+
+    schema = app.openapi()
+    for path, operations in schema["paths"].items():
+        if not path.startswith(PREFIX):
+            continue
+        for operation in operations.values():
+            response = operation["responses"]["200"]["content"]["application/json"]["schema"]
+            envelope = schema["components"]["schemas"][response["$ref"].split("/")[-1]]
+            data = envelope["properties"]["data"]
+            # The common envelope has always allowed null data.
+            alternatives = data.get("anyOf", [data])
+            assert len([item for item in alternatives if "$ref" in item]) == 1, path
+            assert all("$ref" in item or item == {"type": "null"} for item in alternatives), path

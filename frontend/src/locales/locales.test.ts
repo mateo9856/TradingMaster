@@ -8,14 +8,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
-import { SUPPORTED_LANGUAGES, intlLocale } from "@/lib/i18n";
-import de from "./de.json";
-import en from "./en.json";
-import es from "./es.json";
-import fr from "./fr.json";
-import it_ from "./it.json";
-import no from "./no.json";
-import pl from "./pl.json";
+import { SUPPORTED_LANGUAGES, intlLocale } from "@/shared/i18n";
+import de from "@/locales/de.json";
+import en from "@/locales/en.json";
+import es from "@/locales/es.json";
+import fr from "@/locales/fr.json";
+import it_ from "@/locales/it.json";
+import no from "@/locales/no.json";
+import pl from "@/locales/pl.json";
 
 const CATALOGUES: Record<string, Record<string, unknown>> = { en, pl, de, fr, no, it: it_, es };
 const PLURAL_SUFFIX = /_(zero|one|two|few|many|other)$/;
@@ -66,7 +66,7 @@ describe.each(SUPPORTED_LANGUAGES)("%s", (language) => {
     // The server writes these into the HTML head before the app runs (app/seo.py);
     // the app must not then replace them with different words.
     const server = JSON.parse(
-      readFileSync(resolve(__dirname, `../../../app/i18n/locales/${language}.json`), "utf-8"),
+      readFileSync(resolve(__dirname, `../../../src/app/i18n/locales/${language}.json`), "utf-8"),
     ) as { seo: Record<string, string> };
     for (const [key, text] of Object.entries((CATALOGUES[language] as { seo: Record<string, string> }).seo)) {
       expect(text, key).toBe(server.seo[key]);

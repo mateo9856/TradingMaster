@@ -160,7 +160,7 @@ services:
   flink:
     build:
       context: .
-      dockerfile: app/flink_jobs/Dockerfile
+      dockerfile: src/app/flink_jobs/Dockerfile
     image: tradingmaster-flink:${TM_IMAGE_TAG:-dev}
     container_name: tradingmaster-flink
     environment:

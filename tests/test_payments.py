@@ -1,8 +1,8 @@
 """Real database payment, wallet and execution transactions through the API."""
 
 import asyncio
-from decimal import Decimal
 import uuid
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import event, func, select
@@ -10,9 +10,19 @@ from sqlalchemy import event, func, select
 from app import config
 from app.auth import current_active_user
 from app.models.exchange import Exchange, Symbol
-from app.models.trading import CreditEntry, Payment, PaymentAccount, Trade, TradingQuote, Wallet
+from app.models.trading import (
+    CreditEntry,
+    Payment,
+    PaymentAccount,
+    Trade,
+    TradingQuote,
+    Wallet,
+)
 from app.models.user import User
-from tests.test_trading import PREFIX, buy_quote, enable_trading, key, price, trader
+from tests.test_trading import PREFIX, buy_quote, key
+from tests.test_trading import enable_trading as enable_trading
+from tests.test_trading import price as price
+from tests.test_trading import trader as trader
 
 METHODS = [('credits', None), ('card', 'debit'), ('card', 'credit'), ('paypal', None)]
 

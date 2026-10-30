@@ -1,10 +1,10 @@
-from decimal import Decimal
 import os
 import runpy
+from decimal import Decimal
 from unittest.mock import patch
 
-from fastapi import HTTPException
 import pytest
+from fastapi import HTTPException
 
 from app import config
 from app.trading.payments import authorize
@@ -55,7 +55,7 @@ def test_initial_credit_environment_fallback(override, expected):
     if override is not None:
         values['TRADING_INITIAL_CREDITS'] = override
     with patch.dict(os.environ, values, clear=True), patch('dotenv.load_dotenv'):
-        settings = runpy.run_path(str(config.REPO_ROOT / 'app/config.py'))
+        settings = runpy.run_path(str(config.REPO_ROOT / 'src/app/config.py'))
     assert settings['TRADING_INITIAL_CREDITS'] == Decimal(expected)
     assert settings['SIMULATED_TRADING_ENABLED'] is False
     assert settings['SIMULATED_DEBIT_BALANCE'] == Decimal('10000')
@@ -65,7 +65,7 @@ def test_initial_credit_environment_fallback(override, expected):
 def test_non_numeric_configuration_is_rejected():
     with patch.dict(os.environ, {'SIMULATED_DEBIT_BALANCE': 'invalid'}, clear=True), patch('dotenv.load_dotenv'):
         with pytest.raises(ValueError, match='SIMULATED_DEBIT_BALANCE'):
-            runpy.run_path(str(config.REPO_ROOT / 'app/config.py'))
+            runpy.run_path(str(config.REPO_ROOT / 'src/app/config.py'))
 
 
 def test_production_enablement_retains_security_validation(monkeypatch):

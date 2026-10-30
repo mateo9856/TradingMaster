@@ -10,11 +10,12 @@
 
 set -e
 
-JARS_DIR="app/flink_jobs/jars"
-mkdir -p $JARS_DIR
+SCRIPT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+JARS_DIR="$SCRIPT_ROOT/src/app/flink_jobs/jars"
+mkdir -p "$JARS_DIR"
 
 echo "Removing old JARs..."
-rm -f $JARS_DIR/*.jar
+rm -f "$JARS_DIR"/*.jar
 
 BASE="https://repo1.maven.org/maven2/org/apache/flink"
 
@@ -50,7 +51,7 @@ curl -L -o "$JARS_DIR/flink-metrics-prometheus-2.3.0.jar" \
 echo ""
 echo "Verifying JARs..."
 ALL_OK=true
-for jar in $JARS_DIR/*.jar; do
+for jar in "$JARS_DIR"/*.jar; do
   type=$(file "$jar" | grep -o "Java archive\|HTML\|ASCII")
   size=$(ls -lh "$jar" | awk '{print $5}')
   if [[ "$type" == "Java archive" ]]; then

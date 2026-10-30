@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tradingmaster"
+version = "1.0.0"
+description = "TradingMaster market data API and simulated trading"
+requires-python = ">=3.12"
+# requirements.txt / requirements.lock remain the dependency authority.
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+"app.i18n" = ["locales/*.json"]
+
+[tool.ruff]
+target-version = "py312"
+src = ["src"]
+extend-exclude = ["env", "env_flink", ".env-old", "node_modules", "dist", "build", "*.egg-info", "jars"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# Published revisions are immutable. Check their correctness/syntax while
+# preserving these three pre-existing import-only violations byte-for-byte.
+"migrations/versions/2026_09_27_1845-0002_legacy_alignment.py" = ["F401"]
+"migrations/versions/2026_10_22_1200-0006_development_trading.py" = ["I001"]
+"migrations/versions/2026_10_24_1200-0007_simulated_payments.py" = ["I001"]

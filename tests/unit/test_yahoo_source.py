@@ -1,7 +1,6 @@
 from datetime import datetime, timezone
 
 import pandas as pd
-import pytest
 
 from app.kafka.yahoo_source import YahooPoller, frame_for, poll_every, rows_to_ohlcv
 

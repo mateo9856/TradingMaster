@@ -10,7 +10,6 @@ import pytest
 from app import config
 from app.middleware.rate_limit import limiter
 
-
 # ── Rate limiting ────────────────────────────────────────────────────────────
 
 async def test_login_attempts_are_rate_limited(anonymous_client):

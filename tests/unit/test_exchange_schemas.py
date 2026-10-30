@@ -4,7 +4,12 @@ from datetime import date, datetime
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import CandleHistoryResponse, ExchangeCreate, SymbolBulkCreate, SymbolCreate
+from app.schemas import (
+    CandleHistoryResponse,
+    ExchangeCreate,
+    SymbolBulkCreate,
+    SymbolCreate,
+)
 
 
 def test_exchange_and_symbol_schema_defaults():

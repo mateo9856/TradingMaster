@@ -23,7 +23,11 @@ COPY requirements.txt requirements.lock ./
 RUN pip install --no-cache-dir -r requirements.lock
 
 # Copy app code
-COPY app/ ./app/
+COPY pyproject.toml ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir --no-deps .
+
+ENV APP_ROOT=/app FRONTEND_DIST=/app/frontend/dist MIGRATIONS_DIR=/app/migrations ALEMBIC_CONFIG=/app/alembic.ini
 
 # Migrations ship with the image: the db-migrate Job runs `alembic upgrade head`
 # from here, and the API's initContainer resolves the head revision from these

@@ -8,8 +8,8 @@
 
 .DEFAULT_GOAL := help
 .PHONY: help up infra down reset restart ps logs build rebuild stale \
-        clean clean-images migrate psql archive verify test typecheck
+        clean clean-images migrate psql archive verify test typecheck lint
 
 help up infra down reset restart ps logs build rebuild stale clean \
-clean-images migrate psql archive verify test typecheck:
+clean-images migrate psql archive verify test typecheck lint:
 	@./dev $@

@@ -1,5 +1,6 @@
 import pytest
 
+
 async def test_protected_endpoint_rejects_anonymous_request(anonymous_client):
     response = await anonymous_client.post(
         "/api/v1/exchanges", json={"name": "coinbase", "method": "trades"}

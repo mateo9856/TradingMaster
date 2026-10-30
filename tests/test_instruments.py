@@ -7,7 +7,6 @@ from unittest.mock import patch
 import pytest
 import pytest_asyncio
 from fastapi import status
-from sqlalchemy import select
 
 from app import seo
 from app.models.exchange import Exchange, Symbol
@@ -49,7 +48,7 @@ async def collected(db_session):
 def test_db_for_seo():
     """app.seo and the sitemap route open their own sessions — point them at the test DB."""
     with patch("app.seo.AsyncSessionLocal", TestingSessionLocal), \
-         patch("app.main.AsyncSessionLocal", TestingSessionLocal):
+         patch("app.bootstrap.routes.AsyncSessionLocal", TestingSessionLocal):
         yield
 
 

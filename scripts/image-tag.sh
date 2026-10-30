@@ -40,11 +40,12 @@ INPUTS=(
   requirements.txt
   requirements.lock
   alembic.ini
-  app
+  src
+  pyproject.toml
   migrations
 
   # Flink image
-  app/flink_jobs
+  src/app/flink_jobs
 
   # Front-end image
   frontend/Dockerfile

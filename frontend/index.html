@@ -7,7 +7,7 @@
       Defaults for the Vite dev server. When FastAPI serves this file it removes
       every data-seo tag and writes the page's own language, title and
       search-engine metadata in their place (app/seo.py, at app-head below).
-      The app takes them over on boot (src/lib/seo-tags.ts).
+      The app takes them over on boot (src/shared/seo-tags.ts).
     -->
     <title data-seo>TradingMaster</title>
     <meta data-seo name="description" content="Live prices, candlestick charts and history for cryptocurrencies and stocks, in your own currency." />
@@ -15,6 +15,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/app/main.tsx"></script>
   </body>
 </html>

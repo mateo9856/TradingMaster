@@ -55,6 +55,7 @@ infra)      # Only Postgres + Kafka + migrations, for running the app on the hos
   c up -d --build postgres kafka migrate
   echo
   echo "  Infrastructure up. Now run the app from your venv:"
+  echo "    env/bin/pip install --no-deps -e ."
   echo "    $PY -m uvicorn app.main:app --reload"
   echo "    (cd frontend && npm run dev)"
   ;;
@@ -150,13 +151,20 @@ archive)    # Run the EOD archive:  ./dev archive 2026-10-03 [--dry-run]
 # ── Checks ───────────────────────────────────────────────────────────────────
 
 verify)     # Everything CI would run
+  "$0" lint
   "$0" typecheck
   "$0" test
+  (cd frontend && npm run build)
   ;;
 
 test)       # Both test suites
   $PY -m pytest -q
   (cd frontend && npm run test:run)
+  ;;
+
+lint)
+  $PY -m ruff check .
+  (cd frontend && npm run lint)
   ;;
 
 test-backend)
@@ -201,7 +209,8 @@ help|--help|-h)
   echo "  archive D [..] run the EOD archive for a date"
   echo
   echo "Checks"
-  echo "  verify         typecheck + both test suites"
+  echo "  verify         lint + typecheck + both test suites + build"
+  echo "  lint           Ruff + ESLint"
   echo "  test           both test suites"
   echo "  typecheck      tsc --noEmit (tests do not do this)"
   ;;

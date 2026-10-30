@@ -6,7 +6,6 @@ however many viewers it has. Every viewer used to get its own consumer, so the
 live stream's cost scaled with traffic instead of with the market list.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest

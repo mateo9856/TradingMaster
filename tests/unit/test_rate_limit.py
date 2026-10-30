@@ -11,7 +11,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app import config
-from app.middleware.rate_limit import Bucket, SlidingWindowLimiter, bucket_for, client_key
+from app.middleware.rate_limit import (
+    Bucket,
+    SlidingWindowLimiter,
+    bucket_for,
+    client_key,
+)
 
 
 @pytest.fixture

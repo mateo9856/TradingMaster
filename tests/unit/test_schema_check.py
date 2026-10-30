@@ -11,7 +11,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.models import schema_check
-from app.models.schema_check import SchemaOutOfDateError, assert_schema_at_head, head_revisions
+from app.models.schema_check import (
+    SchemaOutOfDateError,
+    assert_schema_at_head,
+    head_revisions,
+)
 
 
 def test_migration_history_has_exactly_one_head():
