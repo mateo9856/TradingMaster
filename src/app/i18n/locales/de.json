@@ -65,6 +65,8 @@
     "checkout_title": "Kaufabschluss | TradingMaster",
     "checkout_description": "Simulierte Käufe und Kontoguthaben",
     "wallet_title": "Guthaben aufladen | TradingMaster",
-    "wallet_description": "Simulierte Käufe und Kontoguthaben"
+    "wallet_description": "Simulierte Käufe und Kontoguthaben",
+    "monitoring_title": "Beobachtung",
+    "monitoring_description": "Beobachtungseinstellungen"
   }
 }

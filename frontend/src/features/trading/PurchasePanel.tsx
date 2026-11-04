@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
 import { LocalizedLink } from "@/shared/LocalizedLink";
-import { Button } from "@/shared/ui/button";
+import { Button, buttonClasses } from "@/shared/ui/button";
 import { useAuth } from "@/features/auth/auth";
 import { useTradingCapabilities } from "@/features/trading/trading";
 
@@ -15,7 +15,7 @@ export function PurchasePanel({ ticker, exchange }: { ticker: string; exchange: 
   return <div className="flex max-w-xs flex-col items-end gap-1 text-right">
     {unavailable ? <Button disabled>{t("trading.buy")}</Button> : (
       <LocalizedLink to={user ? `/checkout?${search}` : "/login"}
-        className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition-colors hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+        className={buttonClasses()}>
         {t(user ? "trading.buy" : "trading.signIn")}
       </LocalizedLink>
     )}

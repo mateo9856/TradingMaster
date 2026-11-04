@@ -22,17 +22,19 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: Size;
 }
 
+export function buttonClasses({ className, variant = "primary", size = "md" }: Pick<ButtonProps, "className" | "variant" | "size"> = {}) {
+  return cn(
+    "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    "disabled:pointer-events-none disabled:opacity-50",
+    VARIANTS[variant], SIZES[size], className,
+  );
+}
+
 export function Button({ className, variant = "primary", size = "md", ...props }: ButtonProps) {
   return (
     <button
-      className={cn(
-        "inline-flex items-center justify-center gap-2 rounded-md font-medium transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        "disabled:pointer-events-none disabled:opacity-50",
-        VARIANTS[variant],
-        SIZES[size],
-        className,
-      )}
+      className={buttonClasses({ className, variant, size })}
       {...props}
     />
   );

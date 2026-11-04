@@ -65,6 +65,8 @@
     "checkout_title": "Kjøp | TradingMaster",
     "checkout_description": "Simulerte kjøp og kontomidler",
     "wallet_title": "Legg til midler | TradingMaster",
-    "wallet_description": "Simulerte kjøp og kontomidler"
+    "wallet_description": "Simulerte kjøp og kontomidler",
+    "monitoring_title": "Overvåking",
+    "monitoring_description": "Innstillinger for overvåking"
   }
 }

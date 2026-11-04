@@ -65,6 +65,8 @@
     "checkout_title": "Checkout | TradingMaster",
     "checkout_description": "Simulated purchases and account funds",
     "wallet_title": "Add funds | TradingMaster",
-    "wallet_description": "Simulated purchases and account funds"
+    "wallet_description": "Simulated purchases and account funds",
+    "monitoring_title": "Monitoring",
+    "monitoring_description": "Monitoring settings"
   }
 }

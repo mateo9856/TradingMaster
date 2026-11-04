@@ -9,6 +9,7 @@ import { useAuth } from "@/features/auth/auth";
 import { formatCash } from "@/shared/format";
 import { cn } from "@/shared/utils";
 import { useTradingCapabilities, useTradingWallet } from "@/features/trading/trading";
+import { Notifications } from "@/features/monitoring/Notifications";
 
 const NAV = [
   { to: "/", key: "nav.live", end: true },
@@ -32,7 +33,7 @@ export function AppShell() {
             <Badge tone="info">{t("nav.mvp")}</Badge>
           </LocalizedNavLink>
 
-          <nav aria-label={t("nav.main")} className="flex items-center gap-1 text-sm">
+          <nav aria-label={t("nav.main")} className="flex flex-wrap items-center gap-1 text-sm">
             {NAV.map((item) => (
               <LocalizedNavLink
                 key={item.to}
@@ -49,6 +50,7 @@ export function AppShell() {
               </LocalizedNavLink>
             ))}
             {trading.data?.enabled && <LocalizedNavLink to="/trades" className="rounded-md px-3 py-1.5">{t("trading.title")}</LocalizedNavLink>}
+            {user && <LocalizedNavLink to="/monitoring" className="rounded-md px-3 py-1.5">{t("monitoring.title")}</LocalizedNavLink>}
           </nav>
 
           <div className="ml-auto flex max-w-full flex-wrap items-center gap-x-3 gap-y-2 text-sm">
@@ -68,6 +70,7 @@ export function AppShell() {
                 {t("nav.signIn")}
               </LocalizedNavLink>
             )}
+            <Notifications />
           </div>
         </div>
       </header>

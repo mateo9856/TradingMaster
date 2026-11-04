@@ -1,5 +1,7 @@
 # TradingMaster
 
+Private watchlists, position monitoring and experimental forecasts are documented in [Market monitoring](docs/MONITORING.md).
+
 TradingMaster is a real-time cryptocurrency market-data service. It collects OHLCV candle data from Binance, Kraken, and Coinbase through CCXT Pro, publishes it to Kafka, persists it in PostgreSQL/TimescaleDB through Apache Flink, and exposes it through a FastAPI REST and WebSocket API.
 
 For a non-technical overview of the business logic, use cases and improvement roadmap, see [docs/BUSINESS_SUMMARY.md](docs/BUSINESS_SUMMARY.md).

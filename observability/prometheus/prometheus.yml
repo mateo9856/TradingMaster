@@ -11,6 +11,9 @@ alerting:
         - targets: ["alertmanager:9093"]
 
 scrape_configs:
+  - job_name: monitoring
+    static_configs:
+      - targets: ["monitoring:9102"]
   # The API as a Compose service. If you run it on the host instead
   # (uvicorn --reload), swap the target for "host.docker.internal:8000" —
   # prometheus still has the host-gateway alias for exactly that case.

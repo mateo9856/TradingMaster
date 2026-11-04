@@ -46,6 +46,9 @@ spec:
               app: eod-archive
         - podSelector:
             matchLabels:
+              app: monitoring
+        - podSelector:
+            matchLabels:
               app: flink-candle-builder
       ports:
         - protocol: TCP

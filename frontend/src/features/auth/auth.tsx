@@ -81,6 +81,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     await queryClient.cancelQueries({ queryKey: ["trading"] });
     queryClient.removeQueries({ queryKey: ["trading"] });
+    await queryClient.cancelQueries({ queryKey: ["monitoring"] });
+    queryClient.removeQueries({ queryKey: ["monitoring"] });
   }, [queryClient]);
 
   const value = useMemo(
