@@ -107,6 +107,8 @@ export const PAYMENT_ACCOUNTS = {
 };
 
 export const handlers = [
+  http.get("/api/v1/monitoring/alerts", () => HttpResponse.json(envelope({ items: [], unread_count: 0 }))),
+  http.get("/api/v1/monitoring/settings", () => HttpResponse.json(envelope({ enabled: false, upward_percent: "10", downward_percent: "10", check_minutes: 60, horizon_days: 1, forecasts_enabled: false, next_check_at: null }))),
   http.get("/api/v1/trading/wallet", () => HttpResponse.json({ detail: "Wallet not initialized" }, { status: 404 })),
   http.get("/api/v1/trading/payment-accounts", () => HttpResponse.json(envelope(PAYMENT_ACCOUNTS))),
   http.get("/api/v1/trading/capabilities", () => HttpResponse.json(envelope({ enabled: false, simulated: true, payment_methods: {} }))),

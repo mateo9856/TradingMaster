@@ -65,6 +65,8 @@
     "checkout_title": "Zakup | TradingMaster",
     "checkout_description": "Symulowane zakupy i środki na koncie",
     "wallet_title": "Dodaj środki | TradingMaster",
-    "wallet_description": "Symulowane zakupy i środki na koncie"
+    "wallet_description": "Symulowane zakupy i środki na koncie",
+    "monitoring_title": "Obserwacja",
+    "monitoring_description": "Ustawienia obserwacji"
   }
 }

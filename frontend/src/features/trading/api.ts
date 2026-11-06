@@ -41,8 +41,8 @@ export const tradingApi = {
       body: JSON.stringify({ quote_id: quoteId }),
     });
   },
-  trades(status: "open" | "closed", offset = 0): Promise<TradePage> {
-    return requestData(`/api/v1/trading/trades${query({ status, offset })}`);
+  trades(status: "open" | "closed", offset = 0, tradeId?: string): Promise<TradePage> {
+    return requestData(`/api/v1/trading/trades${query({ status, offset, trade_id: tradeId })}`);
   },
   demoTopUp(amount: string, key: string): Promise<Wallet> {
     return requestData("/api/v1/trading/wallet/demo-top-ups", {

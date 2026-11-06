@@ -1,0 +1,92 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monitoring
+  template:
+    metadata:
+      labels:
+        app: monitoring
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-migrations
+          image: tradingmaster-api:latest
+          command: ["python", "-m", "app.models.schema_check", "--wait", "--timeout", "300"]
+          envFrom:
+            - secretRef:
+                name: tradingmaster-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: monitoring
+          image: tradingmaster-api:latest
+          command: ["python", "-m", "app.monitoring_runner"]
+          envFrom:
+            - secretRef:
+                name: tradingmaster-secrets
+          env:
+            - name: OTEL_ENABLED
+              value: "false"
+            - name: MONITORING_FORECASTS_ENABLED
+              value: "false"
+          ports:
+            - containerPort: 9102
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9102
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9102
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "768Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: monitoring-service
+spec:
+  selector:
+    app: monitoring
+  ports:
+    - port: 9102
+      targetPort: 9102
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: monitoring-metrics-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app: monitoring
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9102

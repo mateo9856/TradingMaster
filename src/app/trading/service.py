@@ -294,9 +294,11 @@ async def payment_accounts(db: AsyncSession, user_id) -> dict:
 
 
 async def list_trades(db: AsyncSession, user_id, status: str = "open",
-                      limit: int = 10, offset: int = 0) -> dict:
+                      limit: int = 10, offset: int = 0, trade_id: str | None = None) -> dict:
     filters = [Trade.user_id == user_id,
                Trade.closed_at.is_(None) if status == "open" else Trade.closed_at.is_not(None)]
+    if trade_id is not None:
+        filters.append(Trade.id == trade_id)
     total = await db.scalar(select(func.count()).select_from(Trade).where(*filters))
     items = (await db.scalars(select(Trade).where(*filters).order_by(Trade.opened_at.desc(), Trade.id)
                              .offset(offset).limit(limit))).all()

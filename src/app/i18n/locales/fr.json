@@ -65,6 +65,8 @@
     "checkout_title": "Achat | TradingMaster",
     "checkout_description": "Achats simulés et fonds du compte",
     "wallet_title": "Ajouter des fonds | TradingMaster",
-    "wallet_description": "Achats simulés et fonds du compte"
+    "wallet_description": "Achats simulés et fonds du compte",
+    "monitoring_title": "Surveillance",
+    "monitoring_description": "Paramètres de surveillance"
   }
 }

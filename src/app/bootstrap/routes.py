@@ -15,7 +15,15 @@ from app.auth import (
 )
 from app.jobs.job_metrics import refresh_job_metrics
 from app.models.database import AsyncSessionLocal
-from app.routers import currencies, exchanges, history, instruments, market, trading
+from app.routers import (
+    currencies,
+    exchanges,
+    history,
+    instruments,
+    market,
+    monitoring,
+    trading,
+)
 from app.routers.market import load_markets
 
 
@@ -26,6 +34,7 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(currencies.router)
     app.include_router(instruments.router)
     app.include_router(trading.router)
+    app.include_router(monitoring.router)
 
     # Two login routes for the same accounts: the browser takes the cookie one
     # (nothing readable ends up in the page), API clients take the bearer one.

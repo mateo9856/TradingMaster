@@ -13,6 +13,7 @@ resources:
   - frontend.yaml
   - flink.yaml
   - eod-cronjob.yaml
+  - monitoring.yaml
   - prometheus.yaml
   - alertmanager.yaml
   - grafana.yaml

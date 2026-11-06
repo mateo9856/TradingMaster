@@ -24,6 +24,7 @@ fastapi-users[sqlalchemy]>=15.0.0   # user registration/login + JWT auth
 # ── Exchange connectivity ─────────────────────────────────────────────────────
 ccxt[pro]                  # WebSocket streams: Binance, Kraken, Coinbase etc.
 yfinance                   # stocks (US, Warsaw GPW, Xetra, Oslo) — polled, no API key
+exchange-calendars>=4.13,<5 # stock holidays, sessions and forecast horizon mapping
 
 # ── Display currencies ────────────────────────────────────────────────────────
 httpx                      # ECB reference-rate downloads (app/fiat/rates.py)

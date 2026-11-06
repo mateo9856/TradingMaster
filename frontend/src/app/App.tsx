@@ -12,6 +12,7 @@ import { SystemPage } from "@/features/system/SystemPage";
 import { TradesPage } from "@/features/trading/TradesPage";
 import { CheckoutPage } from "@/features/trading/CheckoutPage";
 import { WalletPage } from "@/features/trading/WalletPage";
+import { MonitoringPage } from "@/features/monitoring/MonitoringPage";
 
 /**
  * Every route exists once per language: unprefixed for English, /pl/…, /de/…
@@ -33,6 +34,7 @@ export function App() {
           <Route path="trades" element={<TradesPage />} />
           <Route path="checkout" element={<CheckoutPage />} />
           <Route path="wallet" element={<WalletPage />} />
+          <Route path="monitoring" element={<MonitoringPage />} />
           <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Route>

@@ -291,4 +291,7 @@ def validate_config() -> None:
         )
 
 
+MONITORING_FORECASTS_ENABLED = os.getenv("MONITORING_FORECASTS_ENABLED", "false").lower() == "true"
+MONITORING_METRICS_PORT = int(os.getenv("MONITORING_METRICS_PORT", "9102"))
+
 validate_config()

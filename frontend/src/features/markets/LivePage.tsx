@@ -1,4 +1,5 @@
 import { marketsApi } from "@/features/markets/api";
+import { WatchButton } from "@/features/monitoring/WatchButton";
 /**
  * Live screen — the end-to-end proof: exchange → Kafka → API → browser.
  *
@@ -318,7 +319,7 @@ export function LivePage() {
 
       <Card>
         <CardHeader title={t("live.price")} description={`${formatExchange(exchange ?? "")} · ${shownTicker} · ${interval}`}
-          actions={exchange && <PurchasePanel ticker={market.ticker} exchange={exchange} />} />
+          actions={exchange && <div className="grid w-96 max-w-full grid-cols-2 items-start gap-3"><WatchButton key={`${exchange}:${market.ticker}`} ticker={market.ticker} exchange={exchange} /><PurchasePanel ticker={market.ticker} exchange={exchange} /></div>} />
         <CardBody>
           {candlesQuery.isPending ? (
             <p className="text-sm text-muted-foreground">{t("live.loadingCandles")}</p>

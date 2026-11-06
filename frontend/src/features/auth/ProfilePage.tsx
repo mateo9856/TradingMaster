@@ -12,6 +12,7 @@ import { Card, CardBody, CardHeader } from "@/shared/ui/card";
 import { CurrencySelect } from "@/shared/CurrencySelect";
 import { Field } from "@/shared/ui/field";
 import { useAuth } from "@/features/auth/auth";
+import { MonitoringSettings } from "@/features/monitoring/MonitoringSettings";
 
 export function ProfilePage() {
   const { user, loading, logout } = useAuth();
@@ -64,6 +65,7 @@ export function ProfilePage() {
             {(id) => <CurrencySelect id={id} />}
           </Field>
           {error ? <Alert tone="danger">{error}</Alert> : null}
+          <MonitoringSettings key={user.id} />
           <Button variant="secondary" onClick={signOut} disabled={busy}>
             {busy ? t("profile.signingOut") : t("profile.signOut")}
           </Button>

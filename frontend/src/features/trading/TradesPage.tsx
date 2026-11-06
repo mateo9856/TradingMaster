@@ -2,6 +2,7 @@ import { tradingApi } from "@/features/trading/api";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 
 import { LocalizedLink } from "@/shared/LocalizedLink";
 import { Seo } from "@/shared/Seo";
@@ -34,6 +35,8 @@ export function TradesPage() {
 }
 
 function TradingAccount({ userId }: { userId: string }) {
+  const [params] = useSearchParams();
+  const tradeId = params.get("trade") ?? undefined;
   const { t } = useTranslation();
   const client = useQueryClient();
   const wallet = useTradingWallet(true);
@@ -44,8 +47,8 @@ function TradingAccount({ userId }: { userId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const trades = useQuery({
-    queryKey: ["trading", userId, "trades", status, offset],
-    queryFn: () => tradingApi.trades(status, offset), enabled: Boolean(wallet.data),
+    queryKey: ["trading", userId, "trades", status, offset, tradeId],
+    queryFn: () => tradingApi.trades(status, offset, tradeId), enabled: Boolean(wallet.data),
     retry: false,
     refetchInterval: status === "open" ? 15_000 : false,
   });

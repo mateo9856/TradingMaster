@@ -104,5 +104,7 @@ async def sell(trade_id: UUID, body: ExecuteRequest, key: RequestKey, db: Db, us
 
 @router.get("/trades", dependencies=[Depends(require_trading)], response_model=ApiResponse[TradePageResponse])
 async def trades(db: Db, user: Actor, status: Literal["open", "closed"] = "open",
-                 limit: int = Query(default=10, ge=1, le=50), offset: int = Query(default=0, ge=0)):
-    return response(await service.list_trades(db, user.id, status, limit, offset))
+                 limit: int = Query(default=10, ge=1, le=50), offset: int = Query(default=0, ge=0),
+                 trade_id: UUID | None = None):
+    return response(await service.list_trades(db, user.id, status, limit, offset,
+                                            str(trade_id) if trade_id else None))
