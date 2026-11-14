@@ -18,7 +18,7 @@ Full walkthrough in **[docs/LOCAL_DEVELOPMENT.md](docs/LOCAL_DEVELOPMENT.md)** �
 ## Architecture
 
 ```text
-Binance / Kraken / Coinbase -> CCXT Pro -> FastAPI producer -> Kafka -> Flink -> TimescaleDB
+Binance / Kraken / Coinbase -> CCXT Pro -> dedicated producer -> Kafka -> Flink -> TimescaleDB
                                                                     └-> FastAPI WebSocket
 ```
 
@@ -149,6 +149,10 @@ AUTH_TOKEN_LIFETIME_SECONDS=3600
 an empty one, with `AUTH_COOKIE_SECURE=false`, or with a wildcard/plain-http
 CORS origin. Every one of those used to fail open. See `.env.example` for the
 full, commented list of settings, including the rate limits and WebSocket caps.
+Production also requires `sslmode=require` (or stronger) in `TIMESCALE_URL`, Kafka
+`KAFKA_SECURITY_PROTOCOL=SSL` or `SASL_SSL`, and shared Redis rate limits using
+`RATE_LIMIT_BACKEND=redis` with a `rediss://` URL. Development defaults to local
+memory rate limits and plaintext local services.
 
 The markets to collect are not configured through environment variables. They're managed through `/api/v1/exchanges` (see [Markets](#markets)).
 
@@ -209,7 +213,7 @@ The API is available at `http://localhost:8000`; OpenAPI documentation is at `/d
 curl http://localhost:8000/health
 ```
 
-The API starts the Kafka producer automatically. To run only the producer separately:
+The API and collector are separate processes. Start the collector in another terminal:
 
 ```bash
 python -m app.producer_runner
@@ -341,7 +345,7 @@ also removes wallets, trades and ledger history.
 
 ## Auth
 
-User accounts are provided by [FastAPI Users](https://fastapi-users.github.io/fastapi-users/) (`src/app/auth/`), backed by a `users` table via `fastapi-users-db-sqlalchemy`. Market read endpoints and the market WebSocket remain public. Wallet/trade reads and writes are private; every mutating (`POST`/`PUT`/`PATCH`) endpoint under `/api/v1/market`, `/api/v1/exchanges`, and the manual history-archive trigger requires an authenticated active user.
+User accounts are provided by [FastAPI Users](https://fastapi-users.github.io/fastapi-users/) (`src/app/auth/`), backed by a `users` table via `fastapi-users-db-sqlalchemy`. Market read endpoints and the market WebSocket remain public. Wallet/trade reads and writes are private. Exchange and symbol administration, including instrument catalogue edits, requires an active superuser; regular active users can still use other authenticated endpoints such as manual candle insertion and history archive triggers.
 
 The same JWT travels two ways, and protected endpoints accept either:
 
@@ -350,7 +354,7 @@ The same JWT travels two ways, and protected endpoints accept either:
 | **Browser (the UI)** | `POST /api/v1/auth/cookie/login` → `204` + `Set-Cookie` | http-only `SameSite=strict` cookie, unreadable from JavaScript | writes must send `X-Requested-With` |
 | **API clients** (curl, Swagger, integrations) | `POST /api/v1/auth/jwt/login` → `{"access_token": …}` | `Authorization: Bearer <token>` header | not applicable — no cookie, no guard |
 
-A cookie-authenticated write without the header is rejected with `403`; a cross-site page cannot add that header without a CORS preflight, which is only granted to `CORS_ALLOW_ORIGINS`. Bearer requests are never affected, so every example below keeps working.
+A cookie-authenticated write without the header is rejected with `403`; a cross-site page cannot add that header without a CORS preflight, which is only granted to `CORS_ALLOW_ORIGINS`. Bearer requests are never affected. Both logout endpoints revoke every existing token for that account, so logging out on one device ends sessions on other devices too. Existing JWTs without a version claim remain valid until the first logout after migration.
 
 Register and log in:
 
@@ -363,7 +367,13 @@ curl -X POST http://localhost:8000/api/v1/auth/jwt/login \
   -d 'username=trader@example.com&password=supersecret123'
 ```
 
-The login response's `access_token` is sent as `Authorization: Bearer <token>` on protected requests:
+The login response's `access_token` is sent as `Authorization: Bearer <token>` on protected requests. A newly registered account is a regular user; it receives `403` on exchange, symbol, and instrument administration routes. An operator can grant the superuser flag through a controlled database operation, for example:
+
+```sql
+UPDATE users SET is_superuser = TRUE WHERE email = 'admin@example.com';
+```
+
+Then log in again and use the admin token for management requests:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/exchanges \
@@ -564,8 +574,9 @@ Tests mock Kafka and exchange connections. API tests use temporary SQLite and do
 - **Existing databases** are brought up to date by `alembic upgrade head` (see [Database migrations](#database-migrations)) — including the multi-interval key, the unified-feed columns, `NUMERIC(28,8)` prices, `candles.trace_id` and the `users` table. The old `scripts/migrations/2026_09_unified_feed.sql` is superseded and kept only so older runbooks don't dead-end.
 - Only USD-equivalent markets (USD/USDT/USDC quotes) can be collected: the unified feed publishes every price in USD.
 - If no fresh FX rate is available (startup, or a Kraken outage longer than `FX_MAX_AGE_SECONDS`), USDT/USDC prices are converted at the 1:1 peg. `fx_rate_fallback_total` counts these conversions.
-- Running `app.producer_runner` alongside the API can create duplicate exchange streams. The same applies to running the API with more than one replica, since it starts a producer in its own lifespan — see finding A04-5 in [docs/SECURITY_AUDIT.md](docs/SECURITY_AUDIT.md).
+- The producer runs as a dedicated single-replica workload and takes a PostgreSQL advisory lock, so an accidental second instance cannot collect concurrently. Rate limiting uses Redis in production; development defaults to process-local memory. The live-stream consumer hub remains per API process, so each replica has its own Kafka consumer.
 - Jaeger and Loki run with in-memory/ephemeral storage in this compose/k8s setup — traces and logs don't survive a restart. Fine for local dev; production needs real storage backends (Elasticsearch/Cassandra for Jaeger, a persistent volume + retention config for Loki), not implemented here.
-- Rate limiting and the live-stream consumer hub are both **per process**, so with several API replicas the effective rate limit is roughly N times the configured value. Adequate for abuse protection, not for quotas.
+- Production startup requires TLS for PostgreSQL, Kafka, and Redis. The Kubernetes production overlay expects external TLS endpoints and populated credentials; its checked-in secret values are examples only.
+- Kubernetes API and archive jobs share the `eod-archive-storage` PVC. Production clusters need a `ReadWriteMany` storage class; local Kubernetes patches the claim to `ReadWriteOnce`.
 - The UI has no screen for managing exchanges and symbols yet — that is API-only (see [Markets](#markets)). It's the first item on the UI backlog in the business summary.
 - Keep `.env`, credentials, passwords, `node_modules/`, `frontend/dist/` and generated database files out of version control.

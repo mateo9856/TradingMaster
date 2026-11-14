@@ -30,6 +30,7 @@ from typing import AsyncIterator, Iterable
 from aiokafka import AIOKafkaConsumer
 
 from app.config import KAFKA_BOOTSTRAP_SERVERS, WS_QUEUE_MAXSIZE
+from app.kafka.security import kafka_security_kwargs
 from app.metrics import (
     stream_hub_consumers,
     stream_hub_subscribers,
@@ -88,6 +89,7 @@ class _TopicStream:
             bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
             group_id=None,              # no consumer group: always read the latest
             auto_offset_reset="latest",
+            **kafka_security_kwargs(),
         )
         await self._consumer.start()
         self._task = asyncio.create_task(self._read(), name=f"stream-hub:{self.topic}")

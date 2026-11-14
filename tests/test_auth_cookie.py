@@ -29,6 +29,16 @@ async def login(client) -> None:
     assert response.status_code in (200, 204)
 
 
+async def promote_to_superuser(db_session) -> None:
+    from sqlalchemy import select
+
+    from app.models.user import User
+
+    user = await db_session.scalar(select(User).where(User.email == CREDENTIALS["email"]))
+    user.is_superuser = True
+    await db_session.commit()
+
+
 def set_cookie_header(response) -> str:
     return response.headers.get("set-cookie", "")
 
@@ -82,8 +92,9 @@ async def test_cookie_secure_flag_follows_configuration(anonymous_client, monkey
 
 # ── Using the session ────────────────────────────────────────────────────────
 
-async def test_cookie_authenticates_a_write_with_the_csrf_header(anonymous_client):
+async def test_cookie_authenticates_a_write_with_the_csrf_header(anonymous_client, db_session):
     await register(anonymous_client)
+    await promote_to_superuser(db_session)
     await login(anonymous_client)
 
     response = await anonymous_client.post(
@@ -160,8 +171,9 @@ async def test_a_forged_cookie_is_unauthorized_not_a_crash(anonymous_client, val
 
 # ── The bearer backend is untouched ──────────────────────────────────────────
 
-async def test_bearer_login_still_returns_a_token_and_needs_no_csrf_header(anonymous_client):
+async def test_bearer_login_still_returns_a_token_and_needs_no_csrf_header(anonymous_client, db_session):
     await register(anonymous_client)
+    await promote_to_superuser(db_session)
 
     login_response = await anonymous_client.post(
         "/api/v1/auth/jwt/login",

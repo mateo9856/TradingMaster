@@ -1,5 +1,20 @@
 services:
 
+  monitoring:
+    build:
+      context: .
+    image: tradingmaster-api:${TM_IMAGE_TAG:-dev}
+    command: ["python", "-m", "app.monitoring_runner"]
+    env_file:
+      - .env
+    environment:
+      TIMESCALE_URL: "postgresql+asyncpg://user:mysecretpassword@postgres:5432/tradingmaster"
+      OTEL_ENABLED: "false"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   postgres:
     image: postgres:16
     container_name: tradingmaster-postgres
@@ -46,13 +61,8 @@ services:
     restart: "no"
 
   # ── The application ──────────────────────────────────────────────────────────
-  # Serves the REST API, the live WebSocket stream and the built UI, and runs
-  # the exchange collector in its own lifespan.
-  #
-  # Exactly ONE of these may run at a time — this container or a host-run
-  # `uvicorn app.main:app`. Two would open duplicate exchange streams and
-  # publish every candle twice (the same reason k8s must not scale it; see
-  # A04-5 in docs/SECURITY_AUDIT.md).
+  # Serves the REST API, live WebSocket stream and built UI. Exchange collection
+  # runs in the separate singleton producer service below.
   api:
     build:
       context: .
@@ -88,6 +98,27 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    restart: unless-stopped
+
+  producer:
+    build:
+      context: .
+    image: tradingmaster-api:${TM_IMAGE_TAG:-dev}
+    container_name: tradingmaster-producer
+    command: ["python", "-m", "app.producer_runner"]
+    env_file:
+      - .env
+    environment:
+      TIMESCALE_URL: "postgresql+asyncpg://user:mysecretpassword@postgres:5432/tradingmaster"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:29092"
+      PRODUCER_METRICS_PORT: "9103"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://jaeger:4317"
+      OTEL_SERVICE_NAME: "tradingmaster-producer"
+    expose:
+      - "9103"
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   # One-shot end-of-day archive, for testing the job by hand:

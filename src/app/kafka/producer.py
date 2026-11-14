@@ -56,6 +56,7 @@ from app.helpers.prices import format_decimal, to_decimal
 from app.helpers.sources import NON_CCXT_SOURCES
 from app.helpers.tasks import run_all
 from app.kafka.fx_rates import FxRates, watch_fx_rates
+from app.kafka.security import kafka_security_kwargs
 from app.kafka.yahoo_source import stream_yahoo
 from app.metrics import (
     candles_skipped_total,
@@ -180,7 +181,10 @@ async def _create_topics(config: list[dict]) -> None:
     topics = await _build_topic_list(config)
     if not topics:
         return
-    admin = AIOKafkaAdminClient(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
+    admin = AIOKafkaAdminClient(
+        bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+        **kafka_security_kwargs(),
+    )
     await admin.start()
     try:
         await admin.create_topics([
@@ -497,7 +501,10 @@ async def run_producer() -> None:
                     logger.warning("No enabled exchanges found in DB — producer idle")
                 else:
                     if producer is None:
-                        producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
+                        producer = AIOKafkaProducer(
+                            bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
+                            **kafka_security_kwargs(),
+                        )
                         await producer.start()
                         logger.info("Kafka producer started")
                         fx_task = asyncio.create_task(watch_fx_rates(fx_rates))

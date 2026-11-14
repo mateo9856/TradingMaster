@@ -25,6 +25,7 @@ and saved without restarting the job. A new exchange needs a restart.
 import logging
 import re
 from typing import Callable, Iterable, Mapping, Optional
+from urllib.parse import parse_qs
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ DEFAULT_CHECKPOINT_INTERVAL: str = "30s"
 DEFAULT_TOPIC_DISCOVERY_INTERVAL: str = "60s"
 
 _JDBC_URL = re.compile(
-    r"^jdbc:postgresql://(?P<host>[^:/?#]+)(?::(?P<port>\d+))?/(?P<dbname>[^/?#]+)(?:\?.*)?$"
+    r"^jdbc:postgresql://(?P<host>[^:/?#]+)(?::(?P<port>\d+))?/(?P<dbname>[^/?#]+)(?:\?(?P<query>[^#]*))?$"
 )
 _DURATION = re.compile(r"^\d+\s*(ms|s|min|m|h|d)$")
 
@@ -62,11 +63,16 @@ def parse_jdbc_url(url: str) -> dict:
     match = _JDBC_URL.match(url or "")
     if not match:
         raise ValueError(f"Invalid PostgreSQL JDBC URL: {url!r}")
-    return {
+    params = {
         "host": match["host"],
         "port": int(match["port"] or 5432),
         "dbname": match["dbname"],
     }
+    query = parse_qs(match["query"] or "")
+    for key in ("sslmode", "sslrootcert", "sslcert", "sslkey", "sslpassword"):
+        if key in query:
+            params[key] = query[key][-1]
+    return params
 
 
 def load_enabled_exchanges(
@@ -156,9 +162,60 @@ def topic_discovery_interval(env: Mapping[str, str]) -> str:
     return _duration(env, "FLINK_TOPIC_DISCOVERY_INTERVAL", DEFAULT_TOPIC_DISCOVERY_INTERVAL)
 
 
+def kafka_source_security_properties(env: Mapping[str, str]) -> dict[str, str]:
+    """Kafka connector properties, including optional SASL over verified TLS."""
+    protocol = (env.get("KAFKA_SECURITY_PROTOCOL") or "PLAINTEXT").strip().upper()
+    if protocol == "PLAINTEXT":
+        return {}
+    if protocol not in {"SSL", "SASL_SSL"}:
+        raise ValueError("KAFKA_SECURITY_PROTOCOL must be PLAINTEXT, SSL or SASL_SSL")
+
+    properties = {"security.protocol": protocol}
+    truststore = (env.get("KAFKA_SSL_TRUSTSTORE_LOCATION") or "").strip()
+    if truststore:
+        properties["ssl.truststore.location"] = truststore
+        properties["ssl.truststore.type"] = (env.get("KAFKA_SSL_TRUSTSTORE_TYPE") or "PEM").strip()
+        password = env.get("KAFKA_SSL_TRUSTSTORE_PASSWORD")
+        if password:
+            properties["ssl.truststore.password"] = password
+
+    if protocol != "SASL_SSL":
+        return properties
+
+    mechanism = (env.get("KAFKA_SASL_MECHANISM") or "PLAIN").strip().upper()
+    username = env.get("KAFKA_SASL_USERNAME") or ""
+    password = env.get("KAFKA_SASL_PASSWORD") or ""
+    if not username or not password:
+        raise ValueError("SASL_SSL requires KAFKA_SASL_USERNAME and KAFKA_SASL_PASSWORD")
+    login_module = {
+        "PLAIN": "org.apache.kafka.common.security.plain.PlainLoginModule",
+        "SCRAM-SHA-256": "org.apache.kafka.common.security.scram.ScramLoginModule",
+        "SCRAM-SHA-512": "org.apache.kafka.common.security.scram.ScramLoginModule",
+    }.get(mechanism)
+    if login_module is None:
+        raise ValueError("KAFKA_SASL_MECHANISM must be PLAIN, SCRAM-SHA-256 or SCRAM-SHA-512")
+
+    def quote_jaas(value: str) -> str:
+        if "\n" in value or "\r" in value:
+            raise ValueError("Kafka SASL credentials cannot contain newlines")
+        return value.replace("\\", "\\\\").replace('"', '\\"')
+
+    properties["sasl.mechanism"] = mechanism
+    properties["sasl.jaas.config"] = (
+        f'{login_module} required username="{quote_jaas(username)}" '
+        f'password="{quote_jaas(password)}";'
+    )
+    return properties
+
+
 # ── SQL ──────────────────────────────────────────────────────────────────────
 
-def build_source_ddl(topic_pattern: str, bootstrap_servers: str, discovery_interval: str) -> str:
+def build_source_ddl(
+    topic_pattern: str,
+    bootstrap_servers: str,
+    discovery_interval: str,
+    security_properties: Mapping[str, str] | None = None,
+) -> str:
     """
     Kafka source table. Prices arrive as fixed-point strings and are read as
     STRING (not DOUBLE) so they're cast straight to DECIMAL without rounding.
@@ -166,6 +223,15 @@ def build_source_ddl(topic_pattern: str, bootstrap_servers: str, discovery_inter
     traceparent header the producer attaches, with no DataStream API needed.
     """
     price_columns = ",\n            ".join(f"{col:<14}STRING" for col in _PRICE_COLUMNS)
+    properties = []
+    for name, value in (security_properties or {}).items():
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", name) or "\x00" in value:
+            raise ValueError("Invalid Kafka security property")
+        escaped = value.replace("'", "''")
+        properties.append(f"            'properties.{name}' = '{escaped}'")
+    security_sql = ",\n".join(properties)
+    if security_sql:
+        security_sql += ",\n"
     return f"""
         CREATE TABLE kafka_candles (
             schema_version INT,
@@ -184,7 +250,7 @@ def build_source_ddl(topic_pattern: str, bootstrap_servers: str, discovery_inter
             'topic-pattern'                           = '{topic_pattern}',
             'scan.topic-partition-discovery.interval' = '{discovery_interval}',
             'properties.bootstrap.servers'            = '{bootstrap_servers}',
-            'properties.group.id'                     = '{KAFKA_GROUP_ID}',
+{security_sql}            'properties.group.id'                     = '{KAFKA_GROUP_ID}',
             'scan.startup.mode'                       = 'group-offsets',
             'properties.auto.offset.reset'            = 'earliest',
             'properties.commit.offsets.on.checkpoint' = 'true',

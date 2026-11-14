@@ -336,7 +336,7 @@ async def live_candles(
     """
     client = client_key(websocket)
 
-    allowed, retry_after = check_websocket_connect(websocket)
+    allowed, retry_after = await check_websocket_connect(websocket)
     if not allowed:
         websocket_connections_rejected_total.labels(reason="rate_limited").inc()
         await websocket.close(code=WS_TRY_AGAIN_LATER, reason=f"Rate limited; retry in {retry_after}s")

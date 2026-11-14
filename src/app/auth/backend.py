@@ -20,6 +20,7 @@ from fastapi_users.authentication import (
     CookieTransport,
     JWTStrategy,
 )
+from fastapi_users.jwt import decode_jwt, generate_jwt
 
 from app.config import (
     AUTH_COOKIE_NAME,
@@ -27,6 +28,7 @@ from app.config import (
     AUTH_SECRET,
     AUTH_TOKEN_LIFETIME_SECONDS,
 )
+from app.models.user import User
 
 bearer_transport = BearerTransport(tokenUrl="api/v1/auth/jwt/login")
 
@@ -39,8 +41,30 @@ cookie_transport = CookieTransport(
 )
 
 
+class RevocableJWTStrategy(JWTStrategy):
+    """JWTs remain stateless but a per-user version revokes every active session."""
+
+    async def write_token(self, user: User) -> str:
+        return generate_jwt(
+            {"sub": str(user.id), "aud": self.token_audience, "ver": user.auth_version or 0},
+            self.encode_key,
+            self.lifetime_seconds,
+            algorithm=self.algorithm,
+        )
+
+    async def read_token(self, token, user_manager):
+        user = await super().read_token(token, user_manager)
+        if user is None or token is None:
+            return None
+        try:
+            payload = decode_jwt(token, self.decode_key, self.token_audience, algorithms=[self.algorithm])
+            token_version = int(payload.get("ver", 0))
+        except (TypeError, ValueError):
+            return None
+        return user if token_version == (user.auth_version or 0) else None
+
 def get_jwt_strategy() -> JWTStrategy:
-    return JWTStrategy(secret=AUTH_SECRET, lifetime_seconds=AUTH_TOKEN_LIFETIME_SECONDS)
+    return RevocableJWTStrategy(secret=AUTH_SECRET, lifetime_seconds=AUTH_TOKEN_LIFETIME_SECONDS)
 
 
 auth_backend = AuthenticationBackend(

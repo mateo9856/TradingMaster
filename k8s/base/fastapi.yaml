@@ -16,6 +16,8 @@ spec:
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
+        fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       # The schema is applied by the db-migrate Job, never by an API pod: with
@@ -54,12 +56,17 @@ spec:
             - secretRef:
                 name: tradingmaster-secrets
           env:
+            - name: PARQUET_BASE_DIR
+              value: "/app/data"
             - name: OTEL_ENABLED
               value: "true"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://jaeger-service:4317"
             - name: OTEL_SERVICE_NAME
               value: "tradingmaster-api"
+          volumeMounts:
+            - name: archive-storage
+              mountPath: /app/data
           readinessProbe:
             httpGet:
               path: /health
@@ -79,6 +86,10 @@ spec:
             limits:
               cpu: "500m"
               memory: "512Mi"
+      volumes:
+        - name: archive-storage
+          persistentVolumeClaim:
+            claimName: eod-archive-storage
 
 ---
 apiVersion: v1

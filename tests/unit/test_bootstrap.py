@@ -92,13 +92,12 @@ async def test_lifespan_preserves_startup_and_shutdown_order(monkeypatch):
         return run
 
     monkeypatch.setattr(lifecycle, "watch_fiat_rates", worker("fiat"))
-    monkeypatch.setattr(lifecycle, "run_producer", worker("producer"))
+    monkeypatch.setattr(lifecycle, "run_producer", worker("producer"), raising=False)
     monkeypatch.setattr(lifecycle, "stream_hub", SimpleNamespace(close=step("hub closed")))
     monkeypatch.setattr(lifecycle, "engine", SimpleNamespace(dispose=step("engine disposed")))
     async with lifecycle.lifespan(factory.create_app()):
         await asyncio.sleep(0)
         assert events == ["assert_schema_at_head", "seed_exchanges", "seed_instruments", "seed_guest",
-                          "fiat started", "producer started"]
-    assert events.index("hub closed") < events.index("producer stopped")
+                          "fiat started"]
     assert events.index("hub closed") < events.index("fiat stopped")
     assert events[-1] == "engine disposed"

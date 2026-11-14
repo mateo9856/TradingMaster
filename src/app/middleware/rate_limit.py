@@ -21,13 +21,15 @@ import logging
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from hashlib import sha256
+from uuid import uuid4
 
 from fastapi import status
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
 
 from app import config
-from app.metrics import rate_limit_rejections_total
+from app.metrics import rate_limit_backend_errors_total, rate_limit_rejections_total
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +135,65 @@ class SlidingWindowLimiter:
         self._hits.clear()
 
 
+class RedisSlidingWindowLimiter:
+    """Atomic shared sliding windows for API replicas using Redis sorted sets."""
+
+    _SCRIPT = """
+    local key = KEYS[1]
+    local window = tonumber(ARGV[1])
+    local limit = tonumber(ARGV[2])
+    local member = ARGV[3]
+    local time = redis.call('TIME')
+    local now = (tonumber(time[1]) * 1000) + math.floor(tonumber(time[2]) / 1000)
+    local cutoff = now - window
+    redis.call('ZREMRANGEBYSCORE', key, '-inf', cutoff)
+    local count = redis.call('ZCARD', key)
+    if count >= limit then
+        local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+        local retry = math.max(1, math.ceil((tonumber(oldest[2]) + window - now) / 1000))
+        return {0, retry, 0}
+    end
+    redis.call('ZADD', key, now, member)
+    redis.call('PEXPIRE', key, window)
+    return {1, 0, limit - count - 1}
+    """
+
+    def __init__(self, window_seconds: float = WINDOW_SECONDS, redis_client=None):
+        self._window = window_seconds
+        self._redis = redis_client
+
+    async def _client(self):
+        if self._redis is None:
+            from redis.asyncio import Redis
+
+            self._redis = Redis.from_url(config.RATE_LIMIT_REDIS_URL, decode_responses=True)
+        return self._redis
+
+    async def check(self, client: str, bucket: Bucket) -> tuple[bool, int, int]:
+        if bucket.limit <= 0:
+            return True, 0, 0
+        client_hash = sha256(client.encode("utf-8")).hexdigest()
+        key = f"tradingmaster:rate-limit:{bucket.name}:{client_hash}"
+        result = await (await self._client()).eval(
+            self._SCRIPT,
+            1,
+            key,
+            int(self._window * 1000),
+            bucket.limit,
+            uuid4().hex,
+        )
+        return bool(int(result[0])), int(result[1]), int(result[2])
+
+    async def close(self) -> None:
+        if self._redis is not None:
+            close = getattr(self._redis, "aclose", None)
+            if close is not None:
+                await close()
+            self._redis = None
+
+
 limiter = SlidingWindowLimiter()
+shared_limiter = RedisSlidingWindowLimiter()
 
 # Calls between prunes. Cheap insurance against unbounded growth from a wide
 # spread of source addresses.
@@ -148,13 +208,25 @@ def _maybe_prune() -> None:
         limiter.prune()
 
 
-def check_websocket_connect(websocket) -> tuple[bool, int]:
+async def _check(client: str, bucket: Bucket) -> tuple[bool, int, int]:
+    if config.RATE_LIMIT_BACKEND == "redis":
+        return await shared_limiter.check(client, bucket)
+    allowed, retry_after = limiter.check(client, bucket)
+    return allowed, retry_after, max(limiter.remaining(client, bucket), 0)
+
+
+async def check_websocket_connect(websocket) -> tuple[bool, int]:
     """Rate-limit a WebSocket handshake; the HTTP middleware never sees it."""
     if not config.RATE_LIMIT_ENABLED:
         return True, 0
     _maybe_prune()
     bucket = _buckets()["ws"]
-    allowed, retry_after = limiter.check(client_key(websocket), bucket)
+    try:
+        allowed, retry_after, _ = await _check(client_key(websocket), bucket)
+    except Exception:
+        rate_limit_backend_errors_total.inc()
+        logger.exception("Shared rate-limit backend failed during WebSocket handshake")
+        return False, 1
     if not allowed:
         rate_limit_rejections_total.labels(bucket=bucket.name).inc()
     return allowed, retry_after
@@ -167,7 +239,16 @@ async def rate_limit_middleware(request: Request, call_next):
     _maybe_prune()
     bucket = _buckets()[bucket_for(request.method, request.url.path)]
     client = client_key(request)
-    allowed, retry_after = limiter.check(client, bucket)
+    try:
+        allowed, retry_after, remaining = await _check(client, bucket)
+    except Exception:
+        rate_limit_backend_errors_total.inc()
+        logger.exception("Shared rate-limit backend unavailable; failing closed")
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"detail": "Request limiting is temporarily unavailable; retry shortly."},
+            headers={"Retry-After": "1"},
+        )
 
     if not allowed:
         rate_limit_rejections_total.labels(bucket=bucket.name).inc()
@@ -192,5 +273,9 @@ async def rate_limit_middleware(request: Request, call_next):
 
     response = await call_next(request)
     response.headers["X-RateLimit-Limit"] = str(bucket.limit)
-    response.headers["X-RateLimit-Remaining"] = str(max(limiter.remaining(client, bucket), 0))
+    response.headers["X-RateLimit-Remaining"] = str(remaining)
     return response
+
+
+async def close_rate_limit_backend() -> None:
+    await shared_limiter.close()

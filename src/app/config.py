@@ -9,6 +9,7 @@ real sessions with a key that is published in this repository.
 
 import os
 from decimal import Decimal, InvalidOperation
+from urllib.parse import parse_qs, urlsplit
 
 from dotenv import load_dotenv
 
@@ -42,6 +43,12 @@ DB_SCHEMA_CHECK: bool = os.getenv("DB_SCHEMA_CHECK", "true").lower() == "true"
 
 # Kafka
 KAFKA_BOOTSTRAP_SERVERS: str = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
+KAFKA_SECURITY_PROTOCOL: str = os.getenv("KAFKA_SECURITY_PROTOCOL", "PLAINTEXT").strip().upper()
+KAFKA_SASL_MECHANISM: str = os.getenv("KAFKA_SASL_MECHANISM", "PLAIN").strip().upper()
+KAFKA_SASL_USERNAME: str = os.getenv("KAFKA_SASL_USERNAME", "")
+KAFKA_SASL_PASSWORD: str = os.getenv("KAFKA_SASL_PASSWORD", "")
+KAFKA_SSL_CA_LOCATION: str = os.getenv("KAFKA_SSL_CA_LOCATION", "").strip()
+PRODUCER_METRICS_PORT: int = int(os.getenv("PRODUCER_METRICS_PORT", "9103"))
 
 # Markets (exchanges + trading pairs + intervals) are NOT configured here — they
 # live in the `exchanges` / `symbols` tables (seeded by app/models/seeder.py,
@@ -121,10 +128,11 @@ WS_QUEUE_MAXSIZE: int = int(os.getenv("WS_QUEUE_MAXSIZE", "250"))
 # Ping interval. Without it, half-open sockets sat against the cap forever.
 WS_HEARTBEAT_SECONDS: int = int(os.getenv("WS_HEARTBEAT_SECONDS", "30"))
 
-# Rate limiting — in-process, per pod. With several replicas the effective
-# limit is roughly this value times the replica count, which is fine for abuse
-# protection; exact global limits would need shared state (e.g. Redis).
+# Rate limiting — process-local for development. Multi-replica deployments use
+# the shared Redis backend, and production startup requires its TLS URL.
 RATE_LIMIT_ENABLED: bool = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
+RATE_LIMIT_BACKEND: str = os.getenv("RATE_LIMIT_BACKEND", "memory").strip().lower()
+RATE_LIMIT_REDIS_URL: str = os.getenv("RATE_LIMIT_REDIS_URL", "").strip()
 RATE_LIMIT_READ_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_READ_PER_MINUTE", "300"))
 RATE_LIMIT_WRITE_PER_MINUTE: int = int(os.getenv("RATE_LIMIT_WRITE_PER_MINUTE", "60"))
 # Deliberately strict: this is the brute-force ceiling on login, registration
@@ -224,6 +232,37 @@ class ConfigError(RuntimeError):
     """A production deployment is configured in a way that is unsafe to run."""
 
 
+def validate_transport_security(
+    database_url: str,
+    kafka_security_protocol: str,
+    rate_limit_enabled: bool,
+    rate_limit_backend: str,
+    rate_limit_redis_url: str,
+) -> None:
+    """Require encrypted data connections and shared rate limits in production."""
+    problems: list[str] = []
+    database_query = parse_qs(urlsplit(database_url).query)
+    # TIMESCALE_URL is used with asyncpg, whose URL query option is `sslmode`.
+    # Accepting `ssl=require` here would give operators a false green check for
+    # a parameter asyncpg does not recognize.
+    ssl_modes = database_query.get("sslmode") or []
+    if len(ssl_modes) != 1 or ssl_modes[0].lower() not in {"require", "verify-ca", "verify-full"}:
+        problems.append("database TLS must be enabled with sslmode=require (or stronger)")
+
+    if kafka_security_protocol.upper() not in {"SSL", "SASL_SSL"}:
+        problems.append("Kafka TLS requires KAFKA_SECURITY_PROTOCOL=SSL or SASL_SSL")
+
+    if not rate_limit_enabled:
+        problems.append("production requires rate limiting to be enabled")
+    elif rate_limit_backend.lower() != "redis":
+        problems.append("production requires a shared rate-limit Redis backend")
+    elif urlsplit(rate_limit_redis_url).scheme != "rediss":
+        problems.append("Redis TLS requires RATE_LIMIT_REDIS_URL to use rediss://")
+
+    if problems:
+        raise ConfigError("Production transport requirements failed: " + "; ".join(problems))
+
+
 def validate_config() -> None:
     """
     Fail fast on a production deployment that still carries development
@@ -283,6 +322,17 @@ def validate_config() -> None:
             problems.append(
                 f"CORS_ALLOW_ORIGINS contains the plain-http origin {origin!r}; use https."
             )
+
+    try:
+        validate_transport_security(
+            TIMESCALE_URL,
+            KAFKA_SECURITY_PROTOCOL,
+            RATE_LIMIT_ENABLED,
+            RATE_LIMIT_BACKEND,
+            RATE_LIMIT_REDIS_URL,
+        )
+    except ConfigError as error:
+        problems.append(str(error))
 
     if problems:
         raise ConfigError(

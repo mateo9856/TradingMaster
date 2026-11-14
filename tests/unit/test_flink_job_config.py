@@ -14,6 +14,7 @@ from app.flink_jobs.job_config import (
     build_sink_ddl,
     build_source_ddl,
     build_topic_pattern,
+    kafka_source_security_properties,
     load_enabled_exchanges,
     parse_jdbc_url,
     resolve_topic_pattern,
@@ -43,7 +44,7 @@ def fake_connect(rows=None, error=None):
 @pytest.mark.parametrize("url, expected", [
     (JDBC_URL, {"host": "postgres", "port": 5432, "dbname": "tradingmaster"}),
     ("jdbc:postgresql://localhost/tm", {"host": "localhost", "port": 5432, "dbname": "tm"}),
-    ("jdbc:postgresql://db:6543/tm?sslmode=require", {"host": "db", "port": 6543, "dbname": "tm"}),
+    ("jdbc:postgresql://db:6543/tm?sslmode=require", {"host": "db", "port": 6543, "dbname": "tm", "sslmode": "require"}),
 ])
 def test_parse_jdbc_url(url, expected):
     assert parse_jdbc_url(url) == expected
@@ -135,6 +136,43 @@ def test_source_reads_prices_as_strings_for_exact_decimals():
         assert f"{column:<14}STRING" in ddl
     assert "schema_version INT" in ddl
     assert "DOUBLE" not in ddl
+
+
+def test_source_ddl_adds_escaped_tls_and_sasl_properties():
+    props = kafka_source_security_properties({
+        "KAFKA_SECURITY_PROTOCOL": "SASL_SSL",
+        "KAFKA_SASL_MECHANISM": "PLAIN",
+        "KAFKA_SASL_USERNAME": "trader",
+        "KAFKA_SASL_PASSWORD": "p'a:ss",
+    })
+    ddl = build_source_ddl("p", "k", "60s", security_properties=props)
+
+    assert "'properties.security.protocol' = 'SASL_SSL'" in ddl
+    assert "'properties.sasl.mechanism' = 'PLAIN'" in ddl
+    assert "password=\"p''a:ss\"" in ddl
+
+
+def test_source_security_defaults_to_plaintext_for_local_development():
+    assert kafka_source_security_properties({}) == {}
+
+
+def test_source_security_sets_tls_for_production():
+    assert kafka_source_security_properties({"KAFKA_SECURITY_PROTOCOL": "SSL"}) == {
+        "security.protocol": "SSL",
+    }
+
+
+def test_source_security_adds_sasl_credentials_for_production():
+    properties = kafka_source_security_properties({
+        "KAFKA_SECURITY_PROTOCOL": "SASL_SSL",
+        "KAFKA_SASL_MECHANISM": "SCRAM-SHA-512",
+        "KAFKA_SASL_USERNAME": "trader",
+        "KAFKA_SASL_PASSWORD": "secret",
+    })
+    assert properties["security.protocol"] == "SASL_SSL"
+    assert properties["sasl.mechanism"] == "SCRAM-SHA-512"
+    assert "username=\"trader\"" in properties["sasl.jaas.config"]
+    assert "password=\"secret\"" in properties["sasl.jaas.config"]
 
 
 def test_runtime_config_enables_checkpointing_by_default():

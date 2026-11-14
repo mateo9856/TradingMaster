@@ -3,7 +3,7 @@ Instruments — what each market is.
 
 GET /api/v1/instruments           — every named instrument (the catalogue), localized
 GET /api/v1/instruments/{slug}    — one collected market by its page slug ("bitcoin-btc")
-PUT /api/v1/instruments/{symbol}  — name or reclassify an instrument (signed-in users)
+PUT /api/v1/instruments/{symbol}  — name or reclassify an instrument (superusers)
 
 Names are proper nouns and never translated; `?lang=` translates the taxonomy
 labels and the description (app/i18n).
@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import current_active_user
+from app.auth import current_superuser
 from app.helpers.instruments import (
     CRYPTO_CATEGORIES,
     STOCK_SECTORS,
@@ -114,7 +114,7 @@ async def upsert_instrument(
     symbol: str,
     body: InstrumentUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(current_active_user),
+    user: User = Depends(current_superuser),
 ):
     """Names a market added through the API, or corrects a catalogue entry. The page slug follows the name."""
     try:

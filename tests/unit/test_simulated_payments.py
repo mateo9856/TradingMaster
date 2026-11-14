@@ -77,6 +77,11 @@ def test_production_enablement_retains_security_validation(monkeypatch):
     monkeypatch.setattr(config, 'AUTH_SECRET', 'a' * 48)
     monkeypatch.setattr(config, 'AUTH_COOKIE_SECURE', True)
     monkeypatch.setattr(config, 'CORS_ALLOW_ORIGINS', ['https://example.com'])
+    monkeypatch.setattr(config, 'TIMESCALE_URL', 'postgresql+asyncpg://user:secret@db/tradingmaster?sslmode=require')
+    monkeypatch.setattr(config, 'KAFKA_SECURITY_PROTOCOL', 'SSL')
+    monkeypatch.setattr(config, 'RATE_LIMIT_ENABLED', True)
+    monkeypatch.setattr(config, 'RATE_LIMIT_BACKEND', 'redis')
+    monkeypatch.setattr(config, 'RATE_LIMIT_REDIS_URL', 'rediss://redis.example:6379/0')
     config.validate_config()
     monkeypatch.setattr(config, 'AUTH_COOKIE_SECURE', False)
     with pytest.raises(config.ConfigError, match='AUTH_COOKIE_SECURE'):
