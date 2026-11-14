@@ -40,6 +40,9 @@ spec:
               app: fastapi
         - podSelector:
             matchLabels:
+              app: producer
+        - podSelector:
+            matchLabels:
               app: db-migrate
         - podSelector:
             matchLabels:
@@ -55,7 +58,7 @@ spec:
           port: 5432
 
 ---
-# 3. Kafka: the API (live stream), the producer inside it, and Flink.
+# 3. Kafka: the API (live stream), the dedicated producer, and Flink.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -72,6 +75,9 @@ spec:
         - podSelector:
             matchLabels:
               app: fastapi
+        - podSelector:
+            matchLabels:
+              app: producer
         - podSelector:
             matchLabels:
               app: flink-candle-builder
@@ -120,4 +126,26 @@ spec:
             matchExpressions:
               - key: app
                 operator: In
-                values: ["prometheus", "grafana", "promtail", "alertmanager", "fastapi", "flink-candle-builder", "eod-archive"]
+                values: ["prometheus", "grafana", "promtail", "alertmanager", "fastapi", "producer", "flink-candle-builder", "eod-archive"]
+
+---
+# The producer metrics endpoint is private to Prometheus.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: producer-metrics-ingress
+  namespace: tradingmaster
+spec:
+  podSelector:
+    matchLabels:
+      app: producer
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9103

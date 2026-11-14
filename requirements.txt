@@ -32,6 +32,7 @@ defusedxml                 # parses the ECB XML without entity expansion
  
 # ── Kafka transport ───────────────────────────────────────────────────────────
 aiokafka                   # async Kafka producer/consumer
+redis>=5,<7                # shared rate-limit windows across API replicas
  
 # ── Validation & utilities ────────────────────────────────────────────────────
 pydantic>=2.0

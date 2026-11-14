@@ -1,6 +1,8 @@
 """Deterministic simulated authorization; never contacts a payment provider."""
 
 from decimal import Decimal
+from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -31,7 +33,7 @@ def authorize(kind: str, balance: Decimal, amount: Decimal) -> Decimal:
     return balance - amount
 
 
-async def seed_accounts(db: AsyncSession, user_id) -> None:
+async def seed_accounts(db: AsyncSession, user_id: UUID) -> None:
     insert = sqlite_insert if db.bind.dialect.name == "sqlite" else pg_insert
     for kind, balance in (("debit", config.SIMULATED_DEBIT_BALANCE),
                           ("credit", config.SIMULATED_CREDIT_INITIAL_DEBT),
@@ -41,7 +43,7 @@ async def seed_accounts(db: AsyncSession, user_id) -> None:
                          .on_conflict_do_nothing(index_elements=[PaymentAccount.user_id, PaymentAccount.kind]))
 
 
-async def charge(db: AsyncSession, user_id, method: str, card_type: str | None,
+async def charge(db: AsyncSession, user_id: UUID, method: str, card_type: str | None,
                  amount: Decimal) -> PaymentAccount:
     # Caller holds the user's wallet lock for the whole authorization/commit.
     await seed_accounts(db, user_id)
@@ -51,7 +53,7 @@ async def charge(db: AsyncSession, user_id, method: str, card_type: str | None,
     return account
 
 
-async def accounts_data(db: AsyncSession, user_id) -> dict:
+async def accounts_data(db: AsyncSession, user_id: UUID) -> dict[str, Any]:
     accounts = (await db.scalars(select(PaymentAccount).where(PaymentAccount.user_id == user_id))).all()
     result = {}
     for account in accounts:

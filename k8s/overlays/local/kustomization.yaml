@@ -13,6 +13,8 @@ resources:
 # Apply local-specific patches
 patches:
   - path: fastapi-patch.yaml
+  - path: producer-patch.yaml
+  - path: archive-patch.yaml
   - path: observability-patch.yaml
   - path: eod-patch.yaml
 

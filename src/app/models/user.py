@@ -1,5 +1,5 @@
 from fastapi_users.db import SQLAlchemyBaseUserTableUUID
-from sqlalchemy import Boolean, Column, String, false
+from sqlalchemy import Boolean, Column, Integer, String, false
 
 from .database import Base
 
@@ -15,3 +15,5 @@ class User(SQLAlchemyBaseUserTableUUID, Base):
     # browser". Validated against app/helpers/currencies.FIAT_CURRENCIES.
     preferred_currency = Column(String(3), nullable=True)
     is_dev_guest = Column(Boolean, nullable=False, default=False, server_default=false())
+    # Added without changing existing accounts; old JWTs carry implicit version 0.
+    auth_version = Column(Integer, nullable=False, default=0, server_default="0")

@@ -11,6 +11,7 @@ from .monitoring import (
     MonitoringSettings,
     MonitoringTarget,
 )
+from .producer_status import ProducerStatus
 from .trading import CreditEntry, Payment, PaymentAccount, Trade, TradingQuote, Wallet
 from .user import User
 
@@ -22,6 +23,7 @@ __all__ = [
     "JobRun",
     "MonitoringAlert", "MonitoringSettings", "MonitoringTarget",
     "MonitoringHistoryEvent",
+    "ProducerStatus",
     "User",
     "Wallet", "TradingQuote", "Trade", "CreditEntry", "PaymentAccount", "Payment",
     "Base",

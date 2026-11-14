@@ -64,3 +64,66 @@ spec:
             limits:
               cpu: "2000m"
               memory: "4Gi"
+
+---
+# Keep the collector at one replica. Its PostgreSQL lock remains a second
+# guard against manual or accidental duplicate starts.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: producer
+  namespace: tradingmaster
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: producer
+          imagePullPolicy: Always
+          env:
+            - name: APP_ENV
+              value: "production"
+            - name: PRODUCER_METRICS_PORT
+              value: "9103"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+
+---
+# The Flink job uses the external TLS endpoints from the production secret,
+# overriding the in-cluster plaintext development defaults in the base.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: flink-candle-builder
+  namespace: tradingmaster
+spec:
+  template:
+    spec:
+      containers:
+        - name: flink-candle-builder
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: tradingmaster-secrets
+                  key: KAFKA_BOOTSTRAP_SERVERS
+            - name: TIMESCALE_JDBC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tradingmaster-secrets
+                  key: TIMESCALE_JDBC_URL
+            - name: TIMESCALE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: tradingmaster-secrets
+                  key: TIMESCALE_USER
+            - name: TIMESCALE_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: tradingmaster-secrets
+                  key: TIMESCALE_PASS

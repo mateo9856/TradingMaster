@@ -8,8 +8,10 @@ resources:
   - network-policy.yaml
   - postgres.yaml
   - kafka.yaml
+  - archive-storage.yaml
   - db-migrate-job.yaml
   - fastapi.yaml
+  - producer.yaml
   - frontend.yaml
   - flink.yaml
   - eod-cronjob.yaml

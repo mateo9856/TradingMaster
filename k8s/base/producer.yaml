@@ -1,0 +1,81 @@
+# Exchange collection is a singleton workload. The advisory lock in
+# app.producer_runner also prevents duplicate streams if replicas are raised
+# accidentally or an operator starts a second process by hand.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: producer
+  namespace: tradingmaster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: producer
+  template:
+    metadata:
+      labels:
+        app: producer
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: wait-for-migrations
+          image: tradingmaster-api:latest
+          command: ["python", "-m", "app.models.schema_check", "--wait", "--timeout", "300"]
+          envFrom:
+            - secretRef:
+                name: tradingmaster-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: producer
+          image: tradingmaster-api:latest
+          command: ["python", "-m", "app.producer_runner"]
+          ports:
+            - name: metrics
+              containerPort: 9103
+          envFrom:
+            - secretRef:
+                name: tradingmaster-secrets
+          env:
+            - name: PRODUCER_METRICS_PORT
+              value: "9103"
+            - name: OTEL_ENABLED
+              value: "true"
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://jaeger-service:4317"
+            - name: OTEL_SERVICE_NAME
+              value: "tradingmaster-producer"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: producer-service
+  namespace: tradingmaster
+spec:
+  selector:
+    app: producer
+  ports:
+    - name: metrics
+      port: 9103
+      targetPort: metrics
+  type: ClusterIP

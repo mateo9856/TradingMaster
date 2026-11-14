@@ -76,6 +76,24 @@ async def test_successful_responses_advertise_the_remaining_budget(anonymous_cli
     assert int(response.headers["X-RateLimit-Remaining"]) >= 0
 
 
+async def test_shared_backend_failure_fails_closed_but_leaves_health_available(
+    anonymous_client, monkeypatch
+):
+    from app.middleware import rate_limit
+
+    async def fail_check(*_args):
+        raise ConnectionError("Redis unavailable")
+
+    monkeypatch.setattr(config, "RATE_LIMIT_BACKEND", "redis")
+    monkeypatch.setattr(rate_limit.shared_limiter, "check", fail_check)
+
+    response = await anonymous_client.get("/api/v1/market/markets")
+
+    assert response.status_code == 503
+    assert response.headers["Retry-After"] == "1"
+    assert (await anonymous_client.get("/health")).status_code == 200
+
+
 # ── Bounded inputs ───────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("limit", [0, -1, 100_000_000])

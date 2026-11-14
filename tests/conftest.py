@@ -24,14 +24,13 @@ os.environ.setdefault("DB_SCHEMA_CHECK", "false")
 
 import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, patch
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.auth import current_active_user
+from app.auth import current_active_user, current_superuser
 from app.models.candle import Candle as CandleORM
 from app.models.candle_history import CandleHistory
 from app.models.database import Base, get_db
@@ -108,6 +107,12 @@ def _fake_active_user() -> User:
     )
 
 
+def _fake_superuser() -> User:
+    user = _fake_active_user()
+    user.is_superuser = True
+    return user
+
+
 @pytest_asyncio.fixture
 async def client(reset_database) -> AsyncClient:
     """
@@ -120,20 +125,18 @@ async def client(reset_database) -> AsyncClient:
         async with TestingSessionLocal() as session:
             yield session
 
-    with patch("app.bootstrap.lifespan.run_producer", new_callable=AsyncMock) as mock_producer:
-        mock_producer.return_value = None
+    from app.main import app
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[current_active_user] = _fake_active_user
+    app.dependency_overrides[current_superuser] = _fake_superuser
 
-        from app.main import app
-        app.dependency_overrides[get_db] = override_get_db
-        app.dependency_overrides[current_active_user] = _fake_active_user
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as ac:
+        yield ac
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as ac:
-            yield ac
-
-        app.dependency_overrides.clear()
+    app.dependency_overrides.clear()
 
 
 @pytest_asyncio.fixture
@@ -143,19 +146,16 @@ async def anonymous_client(reset_database) -> AsyncClient:
         async with TestingSessionLocal() as session:
             yield session
 
-    with patch("app.bootstrap.lifespan.run_producer", new_callable=AsyncMock) as mock_producer:
-        mock_producer.return_value = None
+    from app.main import app
+    app.dependency_overrides[get_db] = override_get_db
 
-        from app.main import app
-        app.dependency_overrides[get_db] = override_get_db
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as ac:
+        yield ac
 
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as ac:
-            yield ac
-
-        app.dependency_overrides.clear()
+    app.dependency_overrides.clear()
 
 
 # ── Seed fixtures ─────────────────────────────────────────────────────────────

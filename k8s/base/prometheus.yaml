@@ -22,6 +22,9 @@ data:
         metrics_path: /metrics
         static_configs:
           - targets: ["fastapi-service:80"]
+      - job_name: producer
+        static_configs:
+          - targets: ["producer-service:9103"]
       - job_name: flink
         static_configs:
           - targets: ["flink-candle-builder-service:9250"]
@@ -117,6 +120,35 @@ data:
                 markets this should never happen while the producer is healthy.
                 Check the producer's exchange connections and Kafka.
 
+          - alert: ProducerHeartbeatStale
+            expr: >-
+              producer_last_heartbeat_timestamp_seconds{job="fastapi"} == 0
+              or absent(producer_last_heartbeat_timestamp_seconds{job="fastapi"})
+              or time() - producer_last_heartbeat_timestamp_seconds{job="fastapi"} > 120
+            for: 2m
+            labels:
+              severity: critical
+              component: producer
+            annotations:
+              summary: "The singleton market producer is not reporting"
+              description: >-
+                The producer has not updated its shared PostgreSQL heartbeat for two
+                minutes. Check the producer Deployment, its database connection and
+                the singleton advisory lock.
+
+          - alert: DuplicateProducerStart
+            expr: changes(producer_duplicate_starts_total{job="fastapi"}[10m]) > 0
+            for: 1m
+            labels:
+              severity: warning
+              component: producer
+            annotations:
+              summary: "A duplicate market producer start was refused"
+              description: >-
+                A second process tried to collect the same exchange streams. The
+                PostgreSQL lock prevented duplicate messages; reduce the producer
+                Deployment to one replica and remove any manually started runner.
+
           - alert: ExchangeReconnectLoop
             expr: rate(kafka_reconnects_total[15m]) * 300 > 5
             for: 15m
@@ -168,6 +200,18 @@ data:
               description: >-
                 Either a client is misbehaving or the configured limits are too low
                 for legitimate traffic. Bucket: {{ $labels.bucket }}.
+
+          - alert: SharedRateLimitBackendUnavailable
+            expr: increase(rate_limit_backend_errors_total[5m]) > 0
+            for: 1m
+            labels:
+              severity: critical
+              component: api
+            annotations:
+              summary: "Shared rate limiting is unavailable"
+              description: >-
+                Requests are being rejected with 503 because Redis could not enforce
+                the shared limit. Check the Redis endpoint, TLS and credentials.
 
           - alert: LiveStreamDroppingMessages
             expr: sum(rate(websocket_messages_dropped_total[10m])) > 0

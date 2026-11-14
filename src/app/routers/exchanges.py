@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth import current_active_user
+from app.auth import current_superuser
 from app.config import MARKET_MAX_PAGE_SIZE
 from app.helpers.markets import unified_ticker
 from app.helpers.sources import asset_class_for, intervals_for_method
@@ -70,7 +70,7 @@ async def list_exchanges(
 async def create_exchange(
     body: ExchangeCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(current_active_user),
+    user: User = Depends(current_superuser),
 ):
     existing = await db.execute(select(Exchange).where(Exchange.name == body.name))
     if existing.scalar_one_or_none():
@@ -88,7 +88,7 @@ async def create_exchange(
 async def toggle_exchange(
     exchange_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(current_active_user),
+    user: User = Depends(current_superuser),
 ):
     result = await db.execute(select(Exchange).where(Exchange.id == exchange_id))
     exchange = result.scalar_one_or_none()
@@ -187,7 +187,7 @@ async def create_symbol(
     exchange_id: int,
     body: SymbolCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(current_active_user),
+    user: User = Depends(current_superuser),
 ):
     exchange = await _get_exchange_or_404(db, exchange_id)
 
@@ -220,7 +220,7 @@ async def create_symbols_bulk(
     exchange_id: int,
     body: SymbolBulkCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(current_active_user),
+    user: User = Depends(current_superuser),
 ):
     """
     Adds every ticker × interval combination in one call. Combinations that
@@ -265,7 +265,7 @@ async def create_symbols_bulk(
 async def toggle_symbol(
     symbol_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(current_active_user),
+    user: User = Depends(current_superuser),
 ):
     result = await db.execute(select(Symbol).where(Symbol.id == symbol_id))
     symbol = result.scalar_one_or_none()

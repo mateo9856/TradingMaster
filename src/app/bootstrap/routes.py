@@ -14,7 +14,11 @@ from app.auth import (
     fastapi_users,
 )
 from app.jobs.job_metrics import refresh_job_metrics
+from app.jobs.producer_metrics import refresh_producer_metrics
 from app.models.database import AsyncSessionLocal
+from app.routers import (
+    auth as auth_routes,
+)
 from app.routers import (
     currencies,
     exchanges,
@@ -35,6 +39,9 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(instruments.router)
     app.include_router(trading.router)
     app.include_router(monitoring.router)
+    # These precede FastAPI Users' generated logout routes so sessions are
+    # invalidated in the database before the cookie/token is cleared.
+    app.include_router(auth_routes.router)
 
     # Two login routes for the same accounts: the browser takes the cookie one
     # (nothing readable ends up in the page), API clients take the bearer one.
@@ -83,6 +90,7 @@ def register_routes(app: FastAPI) -> None:
             # refresh_job_metrics never raises — a database problem must not cost
             # us every other metric on the endpoint.
             await refresh_job_metrics()
+            await refresh_producer_metrics()
             return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 

@@ -5,6 +5,8 @@ import hashlib
 import logging
 from datetime import timedelta
 from decimal import ROUND_DOWN, ROUND_HALF_EVEN, Decimal
+from typing import Any
+from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import func, select, update
@@ -39,11 +41,11 @@ def money(value: Decimal) -> Decimal:
     return value.quantize(QUANTUM, rounding=ROUND_HALF_EVEN)
 
 
-def wallet_data(wallet: Wallet) -> dict:
+def wallet_data(wallet: Wallet) -> dict[str, str]:
     return {"balance": number(wallet.balance), "currency": "credits", "usd_per_credit": "1.00000000"}
 
 
-def quote_data(quote: TradingQuote) -> dict:
+def quote_data(quote: TradingQuote) -> dict[str, Any]:
     spread = quote.ask - quote.bid
     return {
         "id": quote.id, "side": quote.side, "exchange": quote.exchange, "ticker": quote.ticker,
@@ -56,7 +58,7 @@ def quote_data(quote: TradingQuote) -> dict:
     }
 
 
-def trade_data(trade: Trade) -> dict:
+def trade_data(trade: Trade) -> dict[str, Any]:
     return {
         "id": trade.id, "exchange": trade.exchange, "ticker": trade.ticker,
         "source_ticker": trade.source_ticker, "quantity": number(trade.quantity),
@@ -68,7 +70,7 @@ def trade_data(trade: Trade) -> dict:
     }
 
 
-async def initialize_wallet(db: AsyncSession, user_id) -> dict:
+async def initialize_wallet(db: AsyncSession, user_id: UUID) -> dict[str, str]:
     # INSERT .. ON CONFLICT is atomic across API workers and repeat requests.
     insert = sqlite_insert if db.bind.dialect.name == "sqlite" else pg_insert
     created = await db.scalar(
@@ -87,14 +89,14 @@ async def initialize_wallet(db: AsyncSession, user_id) -> dict:
     return result
 
 
-async def find_trade(db: AsyncSession, user_id, trade_id: str) -> Trade:
+async def find_trade(db: AsyncSession, user_id: UUID, trade_id: str) -> Trade:
     trade = await db.scalar(select(Trade).where(Trade.id == trade_id, Trade.user_id == user_id))
     if trade is None:
         raise HTTPException(404, "Trade not found")
     return trade
 
 
-async def preview(db: AsyncSession, user_id, request: QuoteRequest) -> dict:
+async def preview(db: AsyncSession, user_id: UUID, request: QuoteRequest) -> dict[str, Any]:
     if await db.get(Wallet, user_id) is None:
         raise HTTPException(409, "Initialize the trading wallet first")
     trade = None
@@ -140,7 +142,7 @@ async def preview(db: AsyncSession, user_id, request: QuoteRequest) -> dict:
     return result
 
 
-async def lock_wallet(db: AsyncSession, user_id) -> Wallet:
+async def lock_wallet(db: AsyncSession, user_id: UUID) -> Wallet:
     # An UPDATE acquires the wallet write lock on both PostgreSQL and SQLite.
     # Read balance and idempotency records only AFTER acquiring it. Request
     # sessions roll back automatically if validation or persistence fails.
@@ -151,7 +153,7 @@ async def lock_wallet(db: AsyncSession, user_id) -> Wallet:
     return await db.get(Wallet, user_id, populate_existing=True)
 
 
-async def replay(db: AsyncSession, user_id, key: str, fingerprint: str) -> dict | None:
+async def replay(db: AsyncSession, user_id: UUID, key: str, fingerprint: str) -> dict[str, Any] | None:
     entry = await db.scalar(select(CreditEntry).where(CreditEntry.user_id == user_id,
                                                     CreditEntry.request_key == key))
     if entry is None:
@@ -162,9 +164,9 @@ async def replay(db: AsyncSession, user_id, key: str, fingerprint: str) -> dict 
     return entry.result
 
 
-async def execute(db: AsyncSession, user_id, key: str, quote_id: str,
+async def execute(db: AsyncSession, user_id: UUID, key: str, quote_id: str,
                   trade_id: str | None = None, payment_method: str = "credits",
-                  card_type: str | None = None) -> dict:
+                  card_type: str | None = None) -> dict[str, Any]:
     action = "sell" if trade_id is not None else "buy"
     identity = f"{action}:{quote_id}:{trade_id}"
     # Preserve fingerprints for old credit purchases and sales.
@@ -224,7 +226,7 @@ async def execute(db: AsyncSession, user_id, key: str, quote_id: str,
     return result
 
 
-async def top_up(db: AsyncSession, user_id, key: str, amount: Decimal) -> dict:
+async def top_up(db: AsyncSession, user_id: UUID, key: str, amount: Decimal) -> dict[str, Any]:
     amount = money(amount)
     fingerprint = hashlib.sha256(f"top_up:{number(amount)}".encode()).hexdigest()
     wallet = await lock_wallet(db, user_id)
@@ -245,8 +247,8 @@ async def top_up(db: AsyncSession, user_id, key: str, amount: Decimal) -> dict:
     return result
 
 
-async def fund_wallet(db: AsyncSession, user_id, key: str, amount: Decimal,
-                      payment_method: str, card_type: str | None) -> dict:
+async def fund_wallet(db: AsyncSession, user_id: UUID, key: str, amount: Decimal,
+                      payment_method: str, card_type: str | None) -> dict[str, Any]:
     amount = money(amount)
     fingerprint = hashlib.sha256(f"fund:{number(amount)}:{payment_method}:{card_type}".encode()).hexdigest()
     wallet = await lock_wallet(db, user_id)
@@ -268,7 +270,7 @@ async def fund_wallet(db: AsyncSession, user_id, key: str, amount: Decimal,
     return result
 
 
-def valuation(price: PriceQuote, trade: Trade) -> dict:
+def valuation(price: PriceQuote, trade: Trade) -> dict[str, Any]:
     value = money(trade.quantity * price.bid)
     spread = price.ask - price.bid
     pnl = value - trade.cost
@@ -281,20 +283,20 @@ def valuation(price: PriceQuote, trade: Trade) -> dict:
     }
 
 
-async def read_wallet(db: AsyncSession, user_id) -> dict:
+async def read_wallet(db: AsyncSession, user_id: UUID) -> dict[str, str]:
     wallet = await db.get(Wallet, user_id)
     if wallet is None:
         raise HTTPException(404, "Wallet not initialized")
     return wallet_data(wallet)
 
 
-async def payment_accounts(db: AsyncSession, user_id) -> dict:
+async def payment_accounts(db: AsyncSession, user_id: UUID) -> dict[str, Any]:
     await initialize_wallet(db, user_id)
     return await accounts_data(db, user_id)
 
 
-async def list_trades(db: AsyncSession, user_id, status: str = "open",
-                      limit: int = 10, offset: int = 0, trade_id: str | None = None) -> dict:
+async def list_trades(db: AsyncSession, user_id: UUID, status: str = "open",
+                      limit: int = 10, offset: int = 0, trade_id: str | None = None) -> dict[str, Any]:
     filters = [Trade.user_id == user_id,
                Trade.closed_at.is_(None) if status == "open" else Trade.closed_at.is_not(None)]
     if trade_id is not None:

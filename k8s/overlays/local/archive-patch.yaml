@@ -1,0 +1,10 @@
+# Minikube and the local single-node clusters use a node-local RWO volume.
+# Production keeps the base RWX claim for multiple API pods and the CronJob.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: eod-archive-storage
+  namespace: tradingmaster
+spec:
+  accessModes:
+    - ReadWriteOnce

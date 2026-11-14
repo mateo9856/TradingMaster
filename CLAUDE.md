@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 TradingMaster is a real-time market-data service for crypto and stocks. It collects OHLCV candle data from Binance, Kraken, and Coinbase via CCXT Pro (plus stocks polled from Yahoo Finance), publishes it to Kafka, persists it in PostgreSQL/TimescaleDB through Apache Flink, and exposes it through a FastAPI REST/WebSocket API.
 
 ```
-Binance / Kraken / Coinbase -> CCXT Pro -> FastAPI producer -> Kafka -> Flink -> TimescaleDB
+Binance / Kraken / Coinbase -> CCXT Pro -> dedicated producer -> Kafka -> Flink -> TimescaleDB
                                                                     └-> FastAPI WebSocket -> React UI (frontend/)
 ```
 
@@ -48,8 +48,8 @@ pip install -r requirements-dev.txt
 env/bin/pip install --no-deps -e .
 
 alembic upgrade head                # apply DB migrations — the API refuses to start otherwise
-uvicorn app.main:app --reload       # run the API (starts the Kafka producer automatically)
-python -m app.producer_runner       # run only the producer (don't run alongside the API — duplicate streams)
+uvicorn app.main:app --reload       # run the API
+python -m app.producer_runner       # run the dedicated producer singleton
 env_flink/bin/python src/app/flink_jobs/candle_builder.py   # Flink job — run as a script, not `-m app...` (needs PyFlink + JARs + psycopg)
 
 cd frontend && npm install          # UI deps (Node 22)
@@ -70,10 +70,12 @@ There are three Python venvs at the repo root: `env/` (API/app), `env_flink/` (P
 
 Config is environment-variable based (`src/app/config.py`, loaded via `python-dotenv`). Key vars: `TIMESCALE_URL`, `KAFKA_BOOTSTRAP_SERVERS`, `PRODUCER_CONFIG_REFRESH_SECONDS`, `FX_REFERENCE_EXCHANGE`/`FX_MAX_AGE_SECONDS`, `DEFAULT_CURRENCY`/`FIAT_RATES_REFRESH_SECONDS`/`FIAT_CACHE_SECONDS`/`ECB_*_URL`, `YAHOO_POLL_SECONDS`, `SITE_URL`, per-exchange `*_API_KEY`/`*_API_SECRET` (unneeded for public candle streams), `AUTH_SECRET`/`AUTH_TOKEN_LIFETIME_SECONDS` (JWT signing), `AUTH_COOKIE_NAME`/`AUTH_COOKIE_SECURE` (session cookie), `APP_ENV` (`production` enables `validate_config()`, which refuses to start on the dev `AUTH_SECRET`, an empty one, `AUTH_COOKIE_SECURE=false` or an unsafe CORS list — all of these used to fail open), `DB_SCHEMA_CHECK`, `DOCS_ENABLED`, `TRUST_PROXY_HEADERS`, the `RATE_LIMIT_*` and `WS_*` caps, and `PARQUET_BASE_DIR`. `.env.example` documents all of them. The Flink job additionally reads `TIMESCALE_JDBC_URL`, `TIMESCALE_USER`, `TIMESCALE_PASS` (plus optional `FLINK_CHECKPOINT_INTERVAL`, `FLINK_TOPIC_DISCOVERY_INTERVAL`, `FLINK_CHECKPOINT_DIR`) — these must be exported in the shell running the job; activating `env_flink` does not load `.env`. JDBC host differs by context: `localhost` when the job runs on the host against Compose, `postgres` when the job runs inside the Compose network.
 
+Production additionally requires PostgreSQL TLS, Kafka `SSL`/`SASL_SSL`, and shared Redis rate limits over `rediss://`. Local development retains plaintext services and in-memory limits. The Flink job reads its Kafka security settings from the environment alongside `TIMESCALE_JDBC_URL`, `TIMESCALE_USER`, and `TIMESCALE_PASS`.
+
 ## Architecture
 
-- `src/app/main.py` — compatibility entrypoint; `src/app/bootstrap/` owns the factory, lifespan, middleware, router registration and SPA serving. Startup **verifies** the DB is at the migrations' head (`src/app/models/schema_check.py`) and refuses to start otherwise — it no longer creates tables — then seeds exchange/symbol config, starts the Kafka producer as a background task, and mounts the FastAPI Users auth/user routers. Middleware order matters and is documented inline: outside in, security headers → CORS → metrics → rate limit → CSRF → router. CORS must stay outside CSRF or a 403 carries no CORS headers. The EOD archive job is *not* run from here — it's a standalone process (`src/app/eod_runner.py`), see below.
-- `src/app/auth/` — FastAPI Users wiring: `schemas.py` (UserRead/Create/Update), `db.py` (`get_user_db`, SQLAlchemy adapter), `manager.py` (`UserManager`, `get_user_manager`), `backend.py` (**two** `AuthenticationBackend`s over one JWT strategy: `cookie_backend` — http-only, `SameSite=strict`, what the UI uses — and `auth_backend`, the bearer transport for API clients), `users.py` (the `fastapi_users` instance registered with both, plus `current_active_user`/`current_superuser`), `csrf.py` (HTTP middleware: a request carrying the auth cookie must send `X-Requested-With` on non-safe methods, else 403; cookie-less bearer requests pass through). `src/app/models/user.py` defines the `User` ORM table (UUID PK, from `SQLAlchemyBaseUserTableUUID`). All `GET` endpoints and the market WebSocket are public; every mutating endpoint in `routers/market.py`, `routers/exchanges.py`, and the history archive trigger requires `current_active_user`. Auth routes live under `/api/v1/auth/*`: `cookie/login`+`cookie/logout` (browser, 204 + Set-Cookie), `jwt/login`+`jwt/logout` (bearer), plus register, password reset and email verify and `/api/v1/users/*` (self-service profile + admin user management).
+- `src/app/main.py` — compatibility entrypoint; `src/app/bootstrap/` owns the factory, lifespan, middleware, router registration and SPA serving. Startup verifies the DB is at the migrations' head, seeds exchange/symbol config, and mounts the FastAPI Users auth/user routers. The Kafka collector runs separately through `src/app/producer_runner.py`; a PostgreSQL advisory lock prevents concurrent collectors. Middleware order matters and is documented inline: security headers → CORS → metrics → rate limit → CSRF → router. The EOD archive job is a standalone process (`src/app/eod_runner.py`).
+- `src/app/auth/` — FastAPI Users wiring with versioned revocable JWTs: cookie transport for the browser, bearer transport for API clients, and CSRF protection for cookie writes. Logout increments a per-user version and revokes all that user's active tokens. Exchange, symbol, and instrument catalogue changes require `current_superuser`; other protected routes use `current_active_user`. Registration stays open, but does not grant administrator rights.
 - `src/app/kafka/producer.py`: CCXT Pro → Kafka producer, one task per enabled exchange.
   - Config comes from the DB and is hot-reloaded by `_reconcile_streams`.
   - A timeframe the exchange streams natively (`exchange.timeframes`) is used directly. Anything else is built from trades: `30s` everywhere, and every interval for `method="trades"` (Coinbase).
@@ -92,7 +94,7 @@ Config is environment-variable based (`src/app/config.py`, loaded via `python-do
   - `--replace` refuses to run when the day's source candles are gone, because it would delete the archive and have nothing to rebuild from.
   - Every run writes a `job_runs` row; the API exports it to Prometheus and serves it at `GET /api/v1/history/archive/runs`. The CronJob pod has no `/metrics` endpoint, so this is the only way the scheduled path is observable.
 - `src/app/kafka/stream_hub.py` — one Kafka consumer per *topic*, shared by every WebSocket subscriber and reference-counted. The live stream's cost scales with markets watched, not with viewers. Subscribers have bounded queues that drop oldest.
-- `src/app/middleware/rate_limit.py` — in-process sliding-window limits (read/write/auth/ws/archive buckets). Per-pod, so with N replicas the effective limit is ~N×. `X-Forwarded-For` is honoured only when `TRUST_PROXY_HEADERS=true`.
+- `src/app/middleware/rate_limit.py` — in-memory sliding windows for local development and atomic Redis-backed shared limits for multi-replica deployments. Production requires TLS Redis. `X-Forwarded-For` is honoured only when `TRUST_PROXY_HEADERS=true`.
 - `src/app/middleware/security_headers.py` — CSP and friends, with a relaxed policy for `/docs` (Swagger loads from a CDN).
 - `migrations/` + `alembic.ini` — Alembic. `0001_baseline` is guarded by `has_table` so a database built by the old `create_all` path converges with a plain `alembic upgrade head`; `0002_legacy_alignment` ports the old one-off SQL script plus the two gaps it never covered. Later revisions are ordinary unguarded migrations.
 - `src/app/routers/` — `market.py` (candle REST + WebSocket endpoints, `load_markets` shared with SEO), `exchanges.py`, `history.py`, `currencies.py`, `instruments.py`.
@@ -119,20 +121,19 @@ Config is environment-variable based (`src/app/config.py`, loaded via `python-do
 
 ## Known gaps (don't assume these are fixed)
 
-- **The producer runs inside the API lifespan** while the prod overlay sets `replicas: 3` — three copies of every exchange stream and every Kafka message. `src/app/producer_runner.py` exists as a standalone entrypoint but has no Deployment of its own. This is the highest-value open item (finding A04-5 in `docs/SECURITY_AUDIT.md`).
-- Running `app.producer_runner` while the API is also running creates duplicate exchange streams, for the same reason.
-- **No admin role.** `current_superuser` is defined in `src/app/auth/users.py` and used on no endpoint; every active user can pause exchanges, bulk-add markets, insert candles and trigger archives. Mutating endpoints now log the acting user id, so the actions are at least attributable.
+- The live-stream consumer hub is per API process, so every API replica runs its own Kafka consumer.
+- Production Kubernetes needs a durable `ReadWriteMany` storage class for the archive PVC; the local overlay uses `ReadWriteOnce`.
 - **Open registration.** Accounts are `is_active=True` immediately and `current_active_user` does not require `is_verified`. Registration is rate-limited but the authorisation model is unchanged.
 - No email backend: FastAPI Users' `on_after_*` hooks only log, so password-reset and verification tokens are generated but never delivered.
-- **Stocks come from Yahoo's unofficial endpoint via `yfinance`** — ~15 min delayed, no SLA, throttles heavy use; with the producer in 3 API replicas it is polled 3×. Fine for display, not for resale.
+- **Stocks come from Yahoo's unofficial endpoint via `yfinance`** — ~15 min delayed, no SLA, throttles heavy use. Fine for display, not for resale.
 - **Translations are machine-quality first drafts** (written in-house, not by native speakers) — have pl/de/fr/no/it/es reviewed before marketing to those countries.
 - **Fiat conversion uses one ECB rate per day.** A candle ingested before ~16:00 CET is converted with yesterday's rate, and read back later with today's once it's published, so a PLN stock read in PLN can be off by that day's rate move.
 - The Flink job builds its topic pattern from enabled exchanges at start — **restart it once after `yahoo` first appears**.
 - **TimescaleDB is not actually enabled** — it is plain `postgres:16`, with no hypertable, compression or retention policy anywhere.
-- Parquet archives go to `PARQUET_BASE_DIR` (default `data/`), which in Kubernetes is the Job pod's ephemeral disk — **the files are lost when the Job ends.** Point it at a persistent volume or object storage.
-- Rate limiting and the stream hub are **per process**, so limits multiply by replica count.
-- Kafka is plaintext (no SASL/TLS) and the Flink job's psycopg connection sets no `sslmode`.
-- JWTs cannot be revoked — logout clears the cookie but the token stays valid for its lifetime (1h default) in either transport.
+- Production performance baselines against real PostgreSQL, Kafka, and exchange traffic have not been collected; tune only after measuring those workloads.
+- Local Compose Kafka and PostgreSQL use plaintext connections; production settings require TLS, but external endpoints and certificates still need cluster validation.
+- Logging out increments a per-user auth version and revokes that account's bearer and cookie tokens on all devices.
+- Registration stays open. New accounts are regular users; exchange, symbol, and instrument catalogue administration requires an operator-promoted superuser.
 - `NetworkPolicy` objects exist but are only enforced if the cluster's CNI implements them; a clean apply is not proof of enforcement.
 
 ## Deployment

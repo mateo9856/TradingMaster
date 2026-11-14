@@ -9,7 +9,7 @@ async def test_protected_endpoint_rejects_anonymous_request(anonymous_client):
     assert response.status_code == 401
 
 
-async def test_register_login_and_access_protected_endpoint(anonymous_client):
+async def test_regular_user_cannot_manage_exchanges(anonymous_client):
     register = await anonymous_client.post(
         "/api/v1/auth/register",
         json={"email": "trader@example.com", "password": "supersecret123"},
@@ -29,7 +29,77 @@ async def test_register_login_and_access_protected_endpoint(anonymous_client):
         headers={"Authorization": f"Bearer {token}"},
     )
 
+    assert response.status_code == 403
+
+
+async def test_regular_user_cannot_manage_symbols_or_instrument_catalogue(anonymous_client):
+    await anonymous_client.post(
+        "/api/v1/auth/register",
+        json={"email": "regular@example.com", "password": "supersecret123"},
+    )
+    login = await anonymous_client.post(
+        "/api/v1/auth/jwt/login",
+        data={"username": "regular@example.com", "password": "supersecret123"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    symbol_response = await anonymous_client.post(
+        "/api/v1/exchanges/1/symbols",
+        json={"ticker": "BTC/USD", "interval": "1m"},
+        headers=headers,
+    )
+    instrument_response = await anonymous_client.put(
+        "/api/v1/instruments/BTC",
+        json={"name": "Bitcoin"},
+        headers=headers,
+    )
+
+    assert symbol_response.status_code == 403
+    assert instrument_response.status_code == 403
+
+
+async def test_superuser_can_manage_exchanges(anonymous_client, db_session):
+    from sqlalchemy import select
+
+    from app.models.user import User
+
+    await anonymous_client.post(
+        "/api/v1/auth/register",
+        json={"email": "admin@example.com", "password": "supersecret123"},
+    )
+    login = await anonymous_client.post(
+        "/api/v1/auth/jwt/login",
+        data={"username": "admin@example.com", "password": "supersecret123"},
+    )
+    user = await db_session.scalar(select(User).where(User.email == "admin@example.com"))
+    user.is_superuser = True
+    await db_session.commit()
+
+    response = await anonymous_client.post(
+        "/api/v1/exchanges",
+        json={"name": "coinbase", "method": "trades"},
+        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+    )
+
     assert response.status_code == 201
+
+
+async def test_logout_revokes_the_bearer_session(anonymous_client):
+    await anonymous_client.post(
+        "/api/v1/auth/register",
+        json={"email": "logout@example.com", "password": "supersecret123"},
+    )
+    login = await anonymous_client.post(
+        "/api/v1/auth/jwt/login",
+        data={"username": "logout@example.com", "password": "supersecret123"},
+    )
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    assert (await anonymous_client.get("/api/v1/users/me", headers=headers)).status_code == 200
+
+    logout = await anonymous_client.post("/api/v1/auth/jwt/logout", headers=headers)
+
+    assert logout.status_code == 204
+    assert (await anonymous_client.get("/api/v1/users/me", headers=headers)).status_code == 401
 
 
 async def test_login_with_wrong_password_is_rejected(anonymous_client):

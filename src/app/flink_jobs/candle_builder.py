@@ -148,7 +148,12 @@ def main():
         t_env.create_temporary_function("extract_trace_id", udf(ExtractTraceId(), result_type=DataTypes.STRING()))
 
     # ── Kafka Source Table ────────────────────────────────────────────────────
-    t_env.execute_sql(job_config.build_source_ddl(topic_pattern, KAFKA_SERVERS, discovery_interval))
+    t_env.execute_sql(job_config.build_source_ddl(
+        topic_pattern,
+        KAFKA_SERVERS,
+        discovery_interval,
+        security_properties=job_config.kafka_source_security_properties(os.environ),
+    ))
 
     # ── PostgreSQL Sink Table ─────────────────────────────────────────────────
     t_env.execute_sql(job_config.build_sink_ddl(TIMESCALE_URL, TIMESCALE_USER, TIMESCALE_PASS))

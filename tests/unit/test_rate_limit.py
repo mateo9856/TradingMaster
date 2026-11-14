@@ -140,6 +140,52 @@ def test_the_left_most_forwarded_address_wins():
         assert key == "1.2.3.4"
 
 
+class FakeRedis:
+    """Small sorted-set implementation for exercising the limiter's Lua contract."""
+
+    def __init__(self):
+        self.windows = {}
+
+    async def eval(self, _script, key_count, key, window_ms, limit, member):
+        assert key_count == 1
+        window_ms, limit = int(window_ms), int(limit)
+        times = self.windows.setdefault(key, {})
+        now_ms = 1_000_000
+        cutoff = now_ms - window_ms
+        times = {item: score for item, score in times.items() if score > cutoff}
+        self.windows[key] = times
+        ordered = sorted(times.items(), key=lambda item: item[1])
+        if len(ordered) >= limit:
+            retry = max(1, (ordered[0][1] + window_ms - now_ms + 999) // 1000)
+            return [0, retry, 0]
+        times[member] = now_ms
+        return [1, 0, limit - len(times)]
+
+
+async def test_redis_limiter_shares_the_window_between_instances():
+    from app.middleware.rate_limit import RedisSlidingWindowLimiter
+
+    redis = FakeRedis()
+    first_worker = RedisSlidingWindowLimiter(redis_client=redis)
+    second_worker = RedisSlidingWindowLimiter(redis_client=redis)
+    bucket = Bucket("auth", 1)
+
+    assert await first_worker.check("203.0.113.4", bucket) == (True, 0, 0)
+    assert await second_worker.check("203.0.113.4", bucket) == (False, 60, 0)
+
+
+async def test_redis_limiter_hashes_client_addresses_in_store_keys():
+    from app.middleware.rate_limit import RedisSlidingWindowLimiter
+
+    redis = FakeRedis()
+    backend = RedisSlidingWindowLimiter(redis_client=redis)
+    await backend.check("203.0.113.4", Bucket("read", 5))
+
+    key = next(iter(redis.windows))
+    assert "203.0.113.4" not in key
+    assert key.startswith("tradingmaster:rate-limit:read:")
+
+
 def test_a_missing_peer_address_still_yields_a_key():
     request = MagicMock()
     request.client = None

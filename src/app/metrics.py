@@ -58,6 +58,23 @@ rate_limit_rejections_total = Counter(
     ["bucket"],
 )
 
+rate_limit_backend_errors_total = Counter(
+    "rate_limit_backend_errors_total",
+    "Requests blocked because the shared rate-limit backend was unavailable",
+)
+
+producer_last_heartbeat_timestamp_seconds = Gauge(
+    "producer_last_heartbeat_timestamp_seconds",
+    "Unix time of the last heartbeat from the singleton Kafka producer",
+)
+
+producer_duplicate_starts_total = Gauge(
+    "producer_duplicate_starts_total",
+    "Cumulative producer starts refused because another producer held the singleton lock",
+)
+producer_last_heartbeat_timestamp_seconds.set(0)
+producer_duplicate_starts_total.set(0)
+
 # Explicit buckets: a real archive run takes minutes, and the prometheus_client
 # default buckets top out at 10s, so every run landed in +Inf and the p95 panel
 # was meaningless.
